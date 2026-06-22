@@ -22,15 +22,13 @@ st.set_page_config(
 # Tema UI/UX Profesional (Clean Minimalist & Enterprise Look)
 st.markdown("""
 <style>
-    /* Mengubah font global dan background aplikasi */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
     html, body, [data-testid="stAppViewContainer"] {
         font-family: 'Inter', sans-serif;
-        background-color: #f8fafc; /* Off-white yang nyaman di mata */
+        background-color: #f8fafc;
     }
     
-    /* Header Profesional Menyerupai Dashboard SaaS */
     .dashboard-header {
         background: #ffffff;
         padding: 1.75rem 2rem;
@@ -44,14 +42,14 @@ st.markdown("""
     }
     .header-title-section h1 {
         font-size: 1.8rem;
-        color: #0f172a; /* Slate 900 */
+        color: #0f172a;
         font-weight: 700;
         margin: 0;
         letter-spacing: -0.02em;
     }
     .header-title-section p {
         font-size: 0.95rem;
-        color: #64748b; /* Slate 500 */
+        color: #64748b;
         margin: 0.25rem 0 0 0;
     }
     .badge-status {
@@ -64,7 +62,6 @@ st.markdown("""
         border: 1px solid #bbf7d0;
     }
     
-    /* Desain Kartu (Cards) Komponen */
     .pro-card {
         background: #ffffff;
         padding: 1.5rem;
@@ -86,11 +83,10 @@ st.markdown("""
         margin-bottom: 1rem;
     }
 
-    /* Hasil Prediksi Utama (KPI Metric Display) */
     .kpi-box {
         background: #fdfdfd;
         border: 1px solid #e2e8f0;
-        border-left: 4px solid #4f46e5; /* Aksen Indigo */
+        border-left: 4px solid #4f46e5;
         padding: 1.25rem;
         border-radius: 8px;
         margin-top: 1rem;
@@ -109,7 +105,6 @@ st.markdown("""
         margin: 0.25rem 0;
     }
     
-    /* Kustomisasi Tab Streamlit agar Lebih Clean */
     button[data-baseweb="tab"] {
         font-size: 0.95rem;
         font-weight: 500;
@@ -120,7 +115,6 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Mempercantik Frame Kamera Langsung */
     .video-stream-container img {
         border-radius: 12px;
         border: 1px solid #cbd5e1;
@@ -130,7 +124,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# 2. APPLICATION HEADER (SaaS Style)
+# 2. APPLICATION HEADER
 # ============================================
 st.markdown("""
 <div class="dashboard-header">
@@ -145,7 +139,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# 3. LOAD CORE MODELS (Optimized Caching)
+# 3. LOAD CORE MODELS
 # ============================================
 @st.cache_resource
 def load_models():
@@ -247,10 +241,10 @@ with st.sidebar:
     st.caption("© 2026 BISINDO Neural Translator Network Pro Tier")
 
 # ============================================
-# 6. MAIN CONTROLLER & MAIN NAVIGATION Tabs
+# 6. MAIN CONTROLLER
 # ============================================
 if image_model is None or video_model is None:
-    st.error("🚨 Master Model File (`.h5` / `.pkl`) tidak ditemukan di folder `models/`. Harap unggah model telebih dahulu.")
+    st.error("🚨 Master Model File (`.h5` / `.pkl`) tidak ditemukan di folder `models/`.")
 else:
     tab1, tab2, tab3, tab4 = st.tabs([
         "📂 Unggah Citra (Abjad)",
@@ -345,7 +339,7 @@ else:
     # TAB 3: LIVE STREAM CAMERA (ABJAD)
     # ----------------------------------------------------------------
     with tab3:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan. Matriks hasil diperbarui otomatis di sisi kanan.</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
         
         c1, c2 = st.columns([2, 1], gap="medium")
         with c1:
@@ -365,11 +359,9 @@ else:
                     ret, frame = cap.read()
                     if not ret: break
                     
-                    # UX Lebih Natural: Efek Cermin (Mirroring)
                     frame = cv2.flip(frame, 1)
                     label, conf = predict_frame_gambar(image_model, frame, image_class_names)
                     
-                    # Render Informasi ke Widget Clean Streamlit (Bukan Teks OpenCV)
                     lbl_placeholder.markdown(f"""
                     <div class="kpi-box">
                         <div class="kpi-title">Karakter Terbaca</div>
@@ -377,12 +369,13 @@ else:
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # FIXED: Konversi eksplisit np.float32 ke Python standard float
                     conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
                     
-                    # Output Video tanpa OSD kaku
                     frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     frame_window.image(frame_disp, channels="RGB", use_container_width=True)
+                    
+                    # MEMBERI NAFAS KEPADA DOM RENDERING (Biar tidak removeChild Error)
+                    time.sleep(0.03)
                 cap.release()
         else:
             frame_window.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
@@ -391,7 +384,7 @@ else:
     # TAB 4: LIVE STREAM CAMERA (KATA)
     # ----------------------------------------------------------------
     with tab4:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinbaungan untuk menyimpulkan sebuah kata tunggal.</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinbaungan.</p></div>', unsafe_allow_html=True)
         
         c1, c2 = st.columns([2, 1], gap="medium")
         with c1:
@@ -417,7 +410,6 @@ else:
                     live_buf.append(frame)
                     
                     current_len = len(live_buf)
-                    # FIXED: Konversi eksplisit np.float32 ke Python standard float
                     buffer_progress.progress(float(current_len / 20), text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed")
                     
                     if current_len == 20:
@@ -434,6 +426,9 @@ else:
                         
                     frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     frame_window_kata.image(frame_disp, channels="RGB", use_container_width=True)
+                    
+                    # MEMBERI NAFAS KEPADA DOM RENDERING (Biar tidak removeChild Error)
+                    time.sleep(0.03)
                 cap.release()
         else:
             frame_window_kata.info("Aktifkan toggle di atas untuk mulai memproses data gestur berbasis waktu secara interaktif.")
