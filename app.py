@@ -19,7 +19,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Tema UI/UX Profesional (Clean Minimalist & Enterprise Look)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -77,11 +76,6 @@ st.markdown("""
         margin-top: 0;
         margin-bottom: 0.5rem;
     }
-    .pro-card p {
-        font-size: 0.9rem;
-        color: #64748b;
-        margin-bottom: 1rem;
-    }
 
     .kpi-box {
         background: #fdfdfd;
@@ -113,12 +107,6 @@ st.markdown("""
     button[data-baseweb="tab"][aria-selected="true"] {
         color: #4f46e5 !important;
         font-weight: 600;
-    }
-    
-    .video-stream-container img {
-        border-radius: 12px;
-        border: 1px solid #cbd5e1;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -154,7 +142,7 @@ def load_models():
             video_class_names = pickle.load(f)
         
         return image_model, video_model, image_class_names, video_class_names
-    except Exception as e:
+    except:
         return None, None, None, None
 
 image_model, video_model, image_class_names, video_class_names = load_models()
@@ -179,8 +167,7 @@ def preprocess_video(video_file, max_frames=20, img_size=96):
     all_frames = []
     while True:
         ret, frame = cap.read()
-        if not ret:
-            break
+        if not ret: break
         all_frames.append(frame)
     cap.release()
     
@@ -336,99 +323,83 @@ else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM CAMERA (ABJAD)
+    # TAB 3 & 4: LIVE STREAM CAMERA WITH PROTECTED FALLBACK
     # ----------------------------------------------------------------
-    with tab3:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
-        
-        c1, c2 = st.columns([2, 1], gap="medium")
-        with c1:
-            run_abjad = st.toggle("Aktifkan Jalur Kamera Abjad", key="tg_abjad")
-            frame_window = st.empty()
-        with c2:
-            st.markdown("##### 📊 LOG PREDIKSI SISTEM")
-            lbl_placeholder = st.empty()
-            conf_placeholder = st.empty()
-            
-        if run_abjad:
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                st.error("Sistem gagal terhubung ke perangkat keras Kamera.")
-            else:
-                while run_abjad:
-                    ret, frame = cap.read()
-                    if not ret: break
-                    
-                    frame = cv2.flip(frame, 1)
-                    label, conf = predict_frame_gambar(image_model, frame, image_class_names)
-                    
-                    lbl_placeholder.markdown(f"""
-                    <div class="kpi-box">
-                        <div class="kpi-title">Karakter Terbaca</div>
-                        <div class="kpi-value" style="color: #4f46e5;">{label}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
-                    
-                    frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    frame_window.image(frame_disp, channels="RGB", use_container_width=True)
-                    
-                    # MEMBERI NAFAS KEPADA DOM RENDERING (Biar tidak removeChild Error)
-                    time.sleep(0.03)
-                cap.release()
-        else:
-            frame_window.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
+    # Menggunakan logika deteksi otomatis lingkungan server cloud / local localhost
+    is_cloud = "STREAMLIT_SERVER_COOKIE_SECRET" in os.environ or "bisindo" in st.navigation
 
-    # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM CAMERA (KATA)
-    # ----------------------------------------------------------------
-    with tab4:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinbaungan.</p></div>', unsafe_allow_html=True)
-        
-        c1, c2 = st.columns([2, 1], gap="medium")
-        with c1:
-            run_kata = st.toggle("Aktifkan Jalur Kamera Kata", key="tg_kata")
-            frame_window_kata = st.empty()
-        with c2:
-            st.markdown("##### 📊 ANALISIS BINGKAI TEMPORAL")
-            buffer_progress = st.empty()
-            kata_lbl = st.empty()
-            
-        if run_kata:
-            cap = cv2.VideoCapture(0)
-            live_buf = deque(maxlen=20)
-            
-            if not cap.isOpened():
-                st.error("Gagal memuat sensor kamera aktif.")
-            else:
-                while run_kata:
-                    ret, frame = cap.read()
-                    if not ret: break
-                    
-                    frame = cv2.flip(frame, 1)
-                    live_buf.append(frame)
-                    
-                    current_len = len(live_buf)
-                    buffer_progress.progress(float(current_len / 20), text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed")
-                    
-                    if current_len == 20:
-                        label, conf = predict_live_kata(video_model, list(live_buf), video_class_names)
-                        kata_lbl.markdown(f"""
-                        <div class="kpi-box" style="border-left-color: #10b981;">
-                            <div class="kpi-title">Terjemahan Frasa/Kata</div>
-                            <div class="kpi-value" style="color: #059669;">"{label.upper()}"</div>
-                            <small style="color: #64748b;">Akurasi Sekuensial: {conf:.1f}%</small>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        kata_lbl.warning("Menyelaraskan data sekuens... Pertahankan posisi tangan Anda di depan kamera.")
-                        
-                    frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    frame_window_kata.image(frame_disp, channels="RGB", use_container_width=True)
-                    
-                    # MEMBERI NAFAS KEPADA DOM RENDERING (Biar tidak removeChild Error)
-                    time.sleep(0.03)
-                cap.release()
+    with tab3:
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3></div>', unsafe_allow_html=True)
+        if is_cloud:
+            st.warning("⚠️ **Deteksi Kamera Terbatas di Cloud**")
+            st.info("OpenCV bawaan tidak diizinkan membuka kamera web lokal Anda dari cloud. Untuk pengujian kamera langsung secara optimal, disarankan menjalankan aplikasi ini di komputer lokal (Localhost) dengan perintah `streamlit run app.py`.")
         else:
-            frame_window_kata.info("Aktifkan toggle di atas untuk mulai memproses data gestur berbasis waktu secara interaktif.")
+            c1, c2 = st.columns([2, 1], gap="medium")
+            with c1:
+                run_abjad = st.toggle("Aktifkan Jalur Kamera Abjad", key="tg_abjad")
+                frame_window = st.empty()
+            with c2:
+                st.markdown("##### 📊 LOG PREDIKSI SISTEM")
+                lbl_placeholder = st.empty()
+                conf_placeholder = st.empty()
+                
+            if run_abjad:
+                cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
+                    st.error("Sistem gagal terhubung ke perangkat keras Kamera lokal.")
+                else:
+                    while run_abjad:
+                        ret, frame = cap.read()
+                        if not ret: break
+                        frame = cv2.flip(frame, 1)
+                        label, conf = predict_frame_gambar(image_model, frame, image_class_names)
+                        
+                        lbl_placeholder.markdown(f'<div class="kpi-box"><div class="kpi-title">Karakter Terbaca</div><div class="kpi-value" style="color: #4f46e5;">{label}</div></div>', unsafe_allow_html=True)
+                        conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
+                        
+                        frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frame_window.image(frame_disp, channels="RGB", use_container_width=True)
+                        time.sleep(0.04)
+                    cap.release()
+                    frame_window.empty()
+
+    with tab4:
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3></div>', unsafe_allow_html=True)
+        if is_cloud:
+            st.warning("⚠️ **Deteksi Kamera Terbatas di Cloud**")
+            st.info("Gunakan opsi **📂 Unggah Video (Kata)** di Tab ke-2 untuk menguji fungsionalitas model isyarat kata secara penuh di server awan.")
+        else:
+            c1, c2 = st.columns([2, 1], gap="medium")
+            with c1:
+                run_kata = st.toggle("Aktifkan Jalur Kamera Kata", key="tg_kata")
+                frame_window_kata = st.empty()
+            with c2:
+                st.markdown("##### 📊 ANALISIS BINGKAI TEMPORAL")
+                buffer_progress = st.empty()
+                kata_lbl = st.empty()
+                
+            if run_kata:
+                cap = cv2.VideoCapture(0)
+                live_buf = deque(maxlen=20)
+                if not cap.isOpened():
+                    st.error("Gagal memuat sensor kamera aktif lokal.")
+                else:
+                    while run_kata:
+                        ret, frame = cap.read()
+                        if not ret: break
+                        frame = cv2.flip(frame, 1)
+                        live_buf.append(frame)
+                        current_len = len(live_buf)
+                        
+                        buffer_progress.progress(float(current_len / 20), text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed")
+                        if current_len == 20:
+                            label, conf = predict_live_kata(video_model, list(live_buf), video_class_names)
+                            kata_lbl.markdown(f'<div class="kpi-box" style="border-left-color: #10b981;"><div class="kpi-title">Terjemahan Frasa/Kata</div><div class="kpi-value" style="color: #059669;">"{label.upper()}"</div><small style="color: #64748b;">Akurasi Sekuensial: {conf:.1f}%</small></div>', unsafe_allow_html=True)
+                        else:
+                            kata_lbl.warning("Menyelaraskan data sekuens...")
+                            
+                        frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frame_window_kata.image(frame_disp, channels="RGB", use_container_width=True)
+                        time.sleep(0.04)
+                    cap.release()
+                    frame_window_kata.empty()
