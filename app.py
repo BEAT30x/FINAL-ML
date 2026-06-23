@@ -8,8 +8,6 @@ from PIL import Image
 import tempfile
 import time
 from collections import deque
-import base64
-import io
 
 # ============================================
 # 1. KONFIGURASI HALAMAN & TEMA UTAMA
@@ -117,43 +115,10 @@ st.markdown("""
         font-weight: 600;
     }
     
-    .camera-container {
-        border: 3px solid #4f46e5;
-        border-radius: 15px;
-        overflow: hidden;
-        background: #000;
-        position: relative;
-    }
-    .overlay-label {
-        position: absolute;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0,0,0,0.8);
-        color: #00ff00;
-        padding: 8px 25px;
-        border-radius: 25px;
-        font-size: 18px;
-        font-weight: bold;
-        z-index: 10;
-        border: 2px solid rgba(0,255,0,0.3);
-        text-align: center;
-        width: 80%;
-        max-width: 400px;
-    }
-    .live-dot {
-        display: inline-block;
-        width: 12px;
-        height: 12px;
-        background: #ff0000;
-        border-radius: 50%;
-        animation: pulse 1s infinite;
-        margin-right: 8px;
-    }
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.3; }
-        100% { opacity: 1; }
+    .video-stream-container img {
+        border-radius: 12px;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -174,77 +139,42 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# 3. LOAD CORE MODELS - DENGAN FALLBACK PATH
+# 3. LOAD CORE MODELS - MULTI PATH SUPPORT
 # ============================================
 @st.cache_resource
 def load_models():
     try:
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         
-        # ==========================================
-        # DAFTAR SEMUA KEMUNGKINAN PATH
-        # ==========================================
+        # Cari di berbagai lokasi
         possible_paths = [
-            # Path di ROOT
-            {"image": os.path.join(BASE_DIR, "image_model.h5"),
-             "video": os.path.join(BASE_DIR, "video_model.h5"),
-             "image_pkl": os.path.join(BASE_DIR, "image_class_names.pkl"),
-             "video_pkl": os.path.join(BASE_DIR, "video_class_names.pkl")},
-            
-            # Path di folder models/
-            {"image": os.path.join(BASE_DIR, "models", "image_model.h5"),
-             "video": os.path.join(BASE_DIR, "models", "video_model.h5"),
-             "image_pkl": os.path.join(BASE_DIR, "models", "image_class_names.pkl"),
-             "video_pkl": os.path.join(BASE_DIR, "models", "video_class_names.pkl")},
-            
-            # Path di folder model/
-            {"image": os.path.join(BASE_DIR, "model", "image_model.h5"),
-             "video": os.path.join(BASE_DIR, "model", "video_model.h5"),
-             "image_pkl": os.path.join(BASE_DIR, "model", "image_class_names.pkl"),
-             "video_pkl": os.path.join(BASE_DIR, "model", "video_class_names.pkl")},
+            {"path": "models", "type": "folder"},
+            {"path": "", "type": "root"},
+            {"path": "model", "type": "folder"},
         ]
         
-        image_model = None
-        video_model = None
-        image_class_names = None
-        video_class_names = None
+        for loc in possible_paths:
+            model_path = os.path.join(BASE_DIR, loc["path"])
+            image_h5 = os.path.join(model_path, "image_model.h5")
+            video_h5 = os.path.join(model_path, "video_model.h5")
+            image_pkl = os.path.join(model_path, "image_class_names.pkl")
+            video_pkl = os.path.join(model_path, "video_class_names.pkl")
+            
+            if os.path.exists(image_h5) and os.path.exists(video_h5):
+                image_model = tf.keras.models.load_model(image_h5)
+                video_model = tf.keras.models.load_model(video_h5)
+                
+                with open(image_pkl, "rb") as f:
+                    image_class_names = pickle.load(f)
+                with open(video_pkl, "rb") as f:
+                    video_class_names = pickle.load(f)
+                
+                st.success(f"✅ Model ditemukan di: {loc['path'] or 'ROOT'}")
+                return image_model, video_model, image_class_names, video_class_names
         
-        for paths in possible_paths:
-            if os.path.exists(paths["image"]) and os.path.exists(paths["video"]):
-                try:
-                    image_model = tf.keras.models.load_model(paths["image"])
-                    video_model = tf.keras.models.load_model(paths["video"])
-                    
-                    with open(paths["image_pkl"], "rb") as f:
-                        image_class_names = pickle.load(f)
-                    with open(paths["video_pkl"], "rb") as f:
-                        video_class_names = pickle.load(f)
-                    
-                    st.success(f"✅ Model ditemukan di: {os.path.dirname(paths['image'])}")
-                    break
-                except Exception as e:
-                    st.warning(f"⚠️ Gagal load dari {os.path.dirname(paths['image'])}: {e}")
-                    continue
-        
-        if image_model is None:
-            st.error("❌ Model tidak ditemukan di semua lokasi!")
-            st.info("📁 Pastikan file model ada di salah satu lokasi:")
-            st.code("""
-            📁 BISINDO_Deployment/
-            ├── app.py
-            ├── image_model.h5       ← Harus ada!
-            ├── video_model.h5       ← Harus ada!
-            ├── image_class_names.pkl
-            ├── video_class_names.pkl
-            └── models/              (opsional)
-                ├── image_model.h5
-                ├── video_model.h5
-                ├── image_class_names.pkl
-                └── video_class_names.pkl
-            """)
-            return None, None, None, None
-        
-        return image_model, video_model, image_class_names, video_class_names
+        st.error("❌ Model tidak ditemukan di semua lokasi!")
+        st.info("Pastikan file model ada di folder 'models/' atau ROOT folder")
+        return None, None, None, None
         
     except Exception as e:
         st.error(f"❌ Gagal memuat model: {e}")
@@ -320,285 +250,8 @@ def predict_live_kata(model, frame_list, class_names, img_size=96):
     pred_class = np.argmax(predictions[0])
     return class_names[pred_class], predictions[0][pred_class] * 100
 
-def predict_image_from_bytes(image_bytes, model, class_names):
-    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-    img = Image.open(io.BytesIO(image_bytes))
-    img = img.resize((224, 224))
-    img_array = np.array(img, dtype=np.float32)
-    img_array = preprocess_input(img_array)
-    img_array = np.expand_dims(img_array, axis=0)
-    
-    predictions = model.predict(img_array, verbose=0)
-    pred_class = np.argmax(predictions[0])
-    return class_names[pred_class], predictions[0][pred_class] * 100
-
 # ============================================
-# 5. HTML KAMERA BROWSER (ABJAD)
-# ============================================
-def camera_abjad_html():
-    return """
-    <div style="text-align: center; margin: 10px 0;">
-        <div class="camera-container">
-            <video id="videoAbjad" width="100%" height="auto" autoplay style="max-height: 400px; background: #000;"></video>
-            <div id="overlayAbjad" class="overlay-label" style="color: #ffcc00;">🔄 Menunggu gestur...</div>
-        </div>
-        <br>
-        <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
-            <button id="startAbjad" style="background: #28a745; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-                ▶️ Start Camera
-            </button>
-            <button id="stopAbjad" style="background: #dc3545; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-                ⏹️ Stop
-            </button>
-            <button id="captureAbjad" style="background: #4f46e5; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-                📸 Capture
-            </button>
-        </div>
-        <br>
-        <div id="statusAbjad" style="font-size: 14px; font-weight: bold; color: #6c757d; min-height: 25px;">
-            ⏸️ Klik Start untuk mengaktifkan kamera
-        </div>
-        <canvas id="canvasAbjad" style="display: none;"></canvas>
-    </div>
-    
-    <script>
-        const video = document.getElementById('videoAbjad');
-        const canvas = document.getElementById('canvasAbjad');
-        const ctx = canvas.getContext('2d');
-        const overlay = document.getElementById('overlayAbjad');
-        const statusDiv = document.getElementById('statusAbjad');
-        const startBtn = document.getElementById('startAbjad');
-        const stopBtn = document.getElementById('stopAbjad');
-        const captureBtn = document.getElementById('captureAbjad');
-        
-        let stream = null;
-        let isRunning = false;
-        
-        function sendToStreamlit(imageData) {
-            const currentUrl = window.location.href.split('?')[0];
-            window.location.href = currentUrl + '?img=' + encodeURIComponent(imageData) + '&mode=abjad&t=' + Date.now();
-            statusDiv.textContent = '⏳ Memproses...';
-            statusDiv.style.color = '#667eea';
-        }
-        
-        function captureFrame() {
-            if (!isRunning) {
-                statusDiv.textContent = '⚠️ Start camera dulu!';
-                statusDiv.style.color = 'orange';
-                return;
-            }
-            
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
-            overlay.textContent = '⏳ Memproses...';
-            overlay.style.color = '#ffcc00';
-            sendToStreamlit(imageData);
-        }
-        
-        function startCamera() {
-            if (isRunning) return;
-            
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
-            .then(mediaStream => {
-                stream = mediaStream;
-                video.srcObject = mediaStream;
-                video.play();
-                isRunning = true;
-                statusDiv.textContent = '🟢 Camera running...';
-                statusDiv.style.color = '#28a745';
-                overlay.textContent = '🔄 Siap capture!';
-                overlay.style.color = '#00ff00';
-                startBtn.disabled = true;
-                startBtn.style.opacity = '0.6';
-                stopBtn.disabled = false;
-            })
-            .catch(err => {
-                statusDiv.textContent = '❌ Error: ' + err.message;
-                statusDiv.style.color = 'red';
-                overlay.textContent = '❌ Camera Error';
-                overlay.style.color = 'red';
-            });
-        }
-        
-        function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-            if (video.srcObject) {
-                video.srcObject = null;
-            }
-            isRunning = false;
-            startBtn.disabled = false;
-            startBtn.style.opacity = '1';
-            statusDiv.textContent = '⏸️ Stopped';
-            statusDiv.style.color = '#6c757d';
-            overlay.textContent = '⏸️ Stopped';
-            overlay.style.color = '#ffffff';
-        }
-        
-        startBtn.addEventListener('click', startCamera);
-        stopBtn.addEventListener('click', stopCamera);
-        captureBtn.addEventListener('click', captureFrame);
-        
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 's' || e.key === 'S') startCamera();
-            else if (e.key === 'x' || e.key === 'X') stopCamera();
-            else if (e.key === 'c' || e.key === 'C') captureFrame();
-        });
-        
-        window.onload = function() {
-            statusDiv.textContent = '⏸️ Klik Start atau tekan S';
-        };
-        
-        window.addEventListener('beforeunload', function() {
-            stopCamera();
-        });
-    </script>
-    """
-
-# ============================================
-# 6. HTML KAMERA BROWSER (KATA)
-# ============================================
-def camera_kata_html():
-    return """
-    <div style="text-align: center; margin: 10px 0;">
-        <div class="camera-container">
-            <video id="videoKata" width="100%" height="auto" autoplay style="max-height: 400px; background: #000;"></video>
-            <div id="overlayKata" class="overlay-label" style="color: #ffcc00;">🔄 Menunggu gestur...</div>
-        </div>
-        <br>
-        <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
-            <button id="startKata" style="background: #28a745; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-                ▶️ Start Camera
-            </button>
-            <button id="stopKata" style="background: #dc3545; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-                ⏹️ Stop
-            </button>
-            <button id="captureKata" style="background: #10b981; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-                🎬 Capture (Kata)
-            </button>
-        </div>
-        <br>
-        <div id="statusKata" style="font-size: 14px; font-weight: bold; color: #6c757d; min-height: 25px;">
-            ⏸️ Klik Start untuk mengaktifkan kamera
-        </div>
-        <div id="bufferInfo" style="font-size: 13px; color: #64748b; margin-top: 5px;">
-            Buffer: 0/20 frame
-        </div>
-        <canvas id="canvasKata" style="display: none;"></canvas>
-    </div>
-    
-    <script>
-        const video = document.getElementById('videoKata');
-        const canvas = document.getElementById('canvasKata');
-        const ctx = canvas.getContext('2d');
-        const overlay = document.getElementById('overlayKata');
-        const statusDiv = document.getElementById('statusKata');
-        const bufferInfo = document.getElementById('bufferInfo');
-        const startBtn = document.getElementById('startKata');
-        const stopBtn = document.getElementById('stopKata');
-        const captureBtn = document.getElementById('captureKata');
-        
-        let stream = null;
-        let isRunning = false;
-        let buffer = [];
-        
-        function sendToStreamlit(imageData) {
-            const currentUrl = window.location.href.split('?')[0];
-            window.location.href = currentUrl + '?img=' + encodeURIComponent(imageData) + '&mode=kata&t=' + Date.now();
-            statusDiv.textContent = '⏳ Memproses...';
-            statusDiv.style.color = '#667eea';
-        }
-        
-        function captureFrame() {
-            if (!isRunning) {
-                statusDiv.textContent = '⚠️ Start camera dulu!';
-                statusDiv.style.color = 'orange';
-                return;
-            }
-            
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
-            overlay.textContent = '⏳ Memproses...';
-            overlay.style.color = '#ffcc00';
-            sendToStreamlit(imageData);
-        }
-        
-        function startCamera() {
-            if (isRunning) return;
-            
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
-            .then(mediaStream => {
-                stream = mediaStream;
-                video.srcObject = mediaStream;
-                video.play();
-                isRunning = true;
-                buffer = [];
-                statusDiv.textContent = '🟢 Camera running...';
-                statusDiv.style.color = '#28a745';
-                overlay.textContent = '🔄 Siap capture!';
-                overlay.style.color = '#00ff00';
-                bufferInfo.textContent = 'Buffer: 0/20 frame';
-                startBtn.disabled = true;
-                startBtn.style.opacity = '0.6';
-                stopBtn.disabled = false;
-            })
-            .catch(err => {
-                statusDiv.textContent = '❌ Error: ' + err.message;
-                statusDiv.style.color = 'red';
-                overlay.textContent = '❌ Camera Error';
-                overlay.style.color = 'red';
-            });
-        }
-        
-        function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-            if (video.srcObject) {
-                video.srcObject = null;
-            }
-            isRunning = false;
-            buffer = [];
-            startBtn.disabled = false;
-            startBtn.style.opacity = '1';
-            statusDiv.textContent = '⏸️ Stopped';
-            statusDiv.style.color = '#6c757d';
-            overlay.textContent = '⏸️ Stopped';
-            overlay.style.color = '#ffffff';
-            bufferInfo.textContent = 'Buffer: 0/20 frame';
-        }
-        
-        startBtn.addEventListener('click', startCamera);
-        stopBtn.addEventListener('click', stopCamera);
-        captureBtn.addEventListener('click', captureFrame);
-        
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 's' || e.key === 'S') startCamera();
-            else if (e.key === 'x' || e.key === 'X') stopCamera();
-            else if (e.key === 'c' || e.key === 'C') captureFrame();
-        });
-        
-        window.onload = function() {
-            statusDiv.textContent = '⏸️ Klik Start atau tekan S';
-        };
-        
-        window.addEventListener('beforeunload', function() {
-            stopCamera();
-        });
-    </script>
-    """
-
-# ============================================
-# 7. SIDEBAR CONTROL PANEL
+# 5. SIDEBAR CONTROL PANEL
 # ============================================
 with st.sidebar:
     st.markdown("### 🛠️ System Control & Core Info")
@@ -611,11 +264,11 @@ with st.sidebar:
     st.caption("© 2026 BISINDO Neural Translator Network Pro Tier")
 
 # ============================================
-# 8. MAIN CONTROLLER
+# 6. MAIN CONTROLLER
 # ============================================
 if image_model is None or video_model is None:
     st.error("🚨 Master Model File (`.h5` / `.pkl`) tidak ditemukan!")
-    st.info("📁 Pastikan file model ada di ROOT folder atau folder `models/`:")
+    st.info("📁 Pastikan file model ada di folder `models/` atau ROOT folder:")
     st.code("""
     📁 BISINDO_Deployment/
     ├── app.py
@@ -720,136 +373,124 @@ else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM CAMERA (ABJAD)
+    # TAB 3: LIVE STREAM CAMERA (ABJAD) - DIPERBAIKI
     # ----------------------------------------------------------------
     with tab3:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera browser untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
         
         c1, c2 = st.columns([2, 1], gap="medium")
         with c1:
-            st.components.v1.html(camera_abjad_html(), height=500)
+            run_abjad = st.toggle("Aktifkan Jalur Kamera Abjad", key="tg_abjad")
+            frame_window = st.empty()
         with c2:
             st.markdown("##### 📊 LOG PREDIKSI SISTEM")
             lbl_placeholder = st.empty()
             conf_placeholder = st.empty()
             
-            # Jika ada hasil di session state
-            if 'abjad_result' in st.session_state:
-                lbl_placeholder.markdown(f"""
-                <div class="kpi-box">
-                    <div class="kpi-title">Karakter Terbaca</div>
-                    <div class="kpi-value" style="color: #4f46e5;">{st.session_state.abjad_result}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                conf_placeholder.progress(float(st.session_state.abjad_confidence / 100), 
-                                         text=f"Tingkat Kepastian Akurasi: {st.session_state.abjad_confidence:.1f}%")
+        if run_abjad:
+            cap = None
+            # Coba beberapa index kamera
+            for i in range(3):
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    break
+                else:
+                    cap.release()
+                    cap = None
             
-            st.markdown("""
-            <div style="background: #f0fdf4; padding: 1rem; border-radius: 10px; border: 1px solid #bbf7d0; margin-top: 1rem;">
-                <p style="margin: 0; font-size: 0.85rem;">
-                    💡 <b>Tips:</b><br>
-                    • Klik <b>Start Camera</b> atau tekan <kbd>S</kbd><br>
-                    • Tunjukkan gestur di depan kamera<br>
-                    • Klik <b>Capture</b> atau tekan <kbd>C</kbd><br>
-                    • Hasil akan muncul di samping
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+            if cap is None:
+                st.error("Sistem gagal terhubung ke perangkat keras Kamera.")
+                st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
+                st.info("💡 Atau gunakan TAB 1 (Upload Gambar) sebagai alternatif.")
+            else:
+                st.success("✅ Kamera berhasil terhubung!")
+                while run_abjad:
+                    ret, frame = cap.read()
+                    if not ret: 
+                        st.warning("Kamera terputus, mencoba reconnect...")
+                        break
+                    
+                    frame = cv2.flip(frame, 1)
+                    label, conf = predict_frame_gambar(image_model, frame, image_class_names)
+                    
+                    lbl_placeholder.markdown(f"""
+                    <div class="kpi-box">
+                        <div class="kpi-title">Karakter Terbaca</div>
+                        <div class="kpi-value" style="color: #4f46e5;">{label}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
+                    
+                    frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frame_window.image(frame_disp, channels="RGB", use_container_width=True)
+                    
+                    time.sleep(0.03)
+                cap.release()
+        else:
+            frame_window.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
 
     # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM CAMERA (KATA)
+    # TAB 4: LIVE STREAM CAMERA (KATA) - DIPERBAIKI
     # ----------------------------------------------------------------
     with tab4:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinambungan.</p></div>', unsafe_allow_html=True)
         
         c1, c2 = st.columns([2, 1], gap="medium")
         with c1:
-            st.components.v1.html(camera_kata_html(), height=500)
+            run_kata = st.toggle("Aktifkan Jalur Kamera Kata", key="tg_kata")
+            frame_window_kata = st.empty()
         with c2:
             st.markdown("##### 📊 ANALISIS BINGKAI TEMPORAL")
+            buffer_progress = st.empty()
             kata_lbl = st.empty()
             
-            if 'kata_result' in st.session_state:
-                kata_lbl.markdown(f"""
-                <div class="kpi-box" style="border-left-color: #10b981;">
-                    <div class="kpi-title">Terjemahan Frasa/Kata</div>
-                    <div class="kpi-value" style="color: #059669;">"{st.session_state.kata_result.upper()}"</div>
-                    <small style="color: #64748b;">Akurasi Sekuensial: {st.session_state.kata_confidence:.1f}%</small>
-                </div>
-                """, unsafe_allow_html=True)
+        if run_kata:
+            cap = None
+            for i in range(3):
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    break
+                else:
+                    cap.release()
+                    cap = None
             
-            st.markdown("""
-            <div style="background: #f0fdf4; padding: 1rem; border-radius: 10px; border: 1px solid #bbf7d0; margin-top: 1rem;">
-                <p style="margin: 0; font-size: 0.85rem;">
-                    💡 <b>Tips:</b><br>
-                    • Klik <b>Start Camera</b> atau tekan <kbd>S</kbd><br>
-                    • Tunjukkan gestur kata di depan kamera<br>
-                    • Klik <b>Capture (Kata)</b> atau tekan <kbd>C</kbd><br>
-                    • Hasil akan muncul di samping
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-# ============================================
-# 9. LISTENER UNTUK DATA DARI JAVASCRIPT
-# ============================================
-
-# Proses data dari query params
-query_params = st.query_params
-
-if 'img' in query_params:
-    try:
-        img_data = query_params['img']
-        mode = query_params.get('mode', 'abjad')
-        
-        if '&t=' in img_data:
-            img_data = img_data.split('&t=')[0]
-        
-        img_b64 = img_data.split(',')[1]
-        img_bytes = base64.b64decode(img_b64)
-        
-        if mode == 'abjad' and image_model is not None:
-            label, confidence = predict_image_from_bytes(img_bytes, image_model, image_class_names)
-            
-            st.session_state['abjad_result'] = label
-            st.session_state['abjad_confidence'] = confidence
-            st.rerun()
-            
-        elif mode == 'kata' and video_model is not None:
-            # Untuk kata, butuh beberapa frame
-            if 'kata_buffer' not in st.session_state:
-                st.session_state.kata_buffer = []
-            
-            st.session_state.kata_buffer.append(img_bytes)
-            if len(st.session_state.kata_buffer) > 20:
-                st.session_state.kata_buffer = st.session_state.kata_buffer[-20:]
-            
-            buffer_len = len(st.session_state.kata_buffer)
-            
-            if buffer_len >= 20:
-                frames = []
-                for b in st.session_state.kata_buffer:
-                    img = Image.open(io.BytesIO(b))
-                    img = img.resize((96, 96))
-                    frames.append(np.array(img, dtype=np.float32) / 255.0)
-                
-                video_array = np.expand_dims(np.array(frames, dtype=np.float32), axis=0)
-                probs = video_model.predict(video_array, verbose=0)[0]
-                pred_idx = np.argmax(probs)
-                
-                label = video_class_names[pred_idx]
-                confidence = probs[pred_idx] * 100
-                
-                st.session_state['kata_result'] = label
-                st.session_state['kata_confidence'] = confidence
-                st.session_state.kata_buffer = []
-                st.rerun()
+            if cap is None:
+                st.error("Gagal memuat sensor kamera aktif.")
+                st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
+                st.info("💡 Atau gunakan TAB 2 (Upload Video) sebagai alternatif.")
             else:
-                st.info(f"⏳ Mengumpulkan frame... {buffer_len}/20")
-        
-        # Clear query params
-        st.query_params.clear()
-        
-    except Exception as e:
-        print(f"Error: {e}")
-        st.query_params.clear()
+                st.success("✅ Kamera berhasil terhubung!")
+                live_buf = deque(maxlen=20)
+                
+                while run_kata:
+                    ret, frame = cap.read()
+                    if not ret:
+                        st.warning("Kamera terputus, mencoba reconnect...")
+                        break
+                    
+                    frame = cv2.flip(frame, 1)
+                    live_buf.append(frame)
+                    
+                    current_len = len(live_buf)
+                    buffer_progress.progress(float(current_len / 20), text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed")
+                    
+                    if current_len == 20:
+                        label, conf = predict_live_kata(video_model, list(live_buf), video_class_names)
+                        kata_lbl.markdown(f"""
+                        <div class="kpi-box" style="border-left-color: #10b981;">
+                            <div class="kpi-title">Terjemahan Frasa/Kata</div>
+                            <div class="kpi-value" style="color: #059669;">"{label.upper()}"</div>
+                            <small style="color: #64748b;">Akurasi Sekuensial: {conf:.1f}%</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        kata_lbl.warning("Menyelaraskan data sekuens... Pertahankan posisi tangan Anda di depan kamera.")
+                        
+                    frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frame_window_kata.image(frame_disp, channels="RGB", use_container_width=True)
+                    
+                    time.sleep(0.03)
+                cap.release()
+        else:
+            frame_window_kata.info("Aktifkan toggle di atas untuk mulai memproses data gestur berbasis waktu secara interaktif.")
