@@ -1,3 +1,10 @@
+"""
+====================================================================
+APLIKASI KLASIFIKASI GESTUR TANGAN BISINDO
+Bahasa Isyarat Indonesia (BISINDO) - Stable Version
+====================================================================
+"""
+
 import streamlit as st
 import tensorflow as tf
 import numpy as np
@@ -7,178 +14,185 @@ import os
 from PIL import Image
 import tempfile
 import time
-from collections import deque
 
 # ============================================
-# 1. KONFIGURASI HALAMAN & TEMA UTAMA
+# KONFIGURASI HALAMAN
 # ============================================
+
 st.set_page_config(
-    page_title="BISINDO Intelligence Translator",
+    page_title="BISINDO - Bahasa Isyarat Indonesia",
     page_icon="🖐️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# ============================================
+# CSS KUSTOM
+# ============================================
+
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    html, body, [data-testid="stAppViewContainer"] {
-        font-family: 'Inter', sans-serif;
-        background-color: #f8fafc;
-    }
-    
-    .dashboard-header {
-        background: #ffffff;
-        padding: 1.75rem 2rem;
-        border-radius: 12px;
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        color: white;
+        text-align: center;
         margin-bottom: 2rem;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
     }
-    .header-title-section h1 {
-        font-size: 1.8rem;
-        color: #0f172a;
-        font-weight: 700;
+    .main-header h1 {
+        font-size: 3rem;
         margin: 0;
-        letter-spacing: -0.02em;
-    }
-    .header-title-section p {
-        font-size: 0.95rem;
-        color: #64748b;
-        margin: 0.25rem 0 0 0;
-    }
-    .badge-status {
-        background-color: #f0fdf4;
-        color: #166534;
-        padding: 0.35rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 0.85rem;
-        font-weight: 500;
-        border: 1px solid #bbf7d0;
-    }
-    
-    .pro-card {
-        background: #ffffff;
-        padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-        margin-bottom: 1.5rem;
-    }
-    .pro-card h3 {
-        font-size: 1.15rem;
-        font-weight: 600;
-        color: #1e293b;
-        margin-top: 0;
-        margin-bottom: 0.5rem;
-    }
-
-    .kpi-box {
-        background: #fdfdfd;
-        border: 1px solid #e2e8f0;
-        border-left: 4px solid #4f46e5;
-        padding: 1.25rem;
-        border-radius: 8px;
-        margin-top: 1rem;
-    }
-    .kpi-title {
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: #64748b;
-        font-weight: 600;
-    }
-    .kpi-value {
-        font-size: 2rem;
         font-weight: 700;
-        color: #0f172a;
-        margin: 0.25rem 0;
     }
-    
-    button[data-baseweb="tab"] {
-        font-size: 0.95rem;
-        font-weight: 500;
-        color: #64748b;
+    .main-header p {
+        font-size: 1.2rem;
+        opacity: 0.9;
+        margin: 0.5rem 0 0 0;
     }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: #4f46e5 !important;
-        font-weight: 600;
+    .card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+    }
+    .result-box {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        color: white;
+        text-align: center;
+    }
+    .result-box h2 {
+        font-size: 2.5rem;
+        margin: 0;
+    }
+    .result-box .confidence {
+        font-size: 1.2rem;
+        opacity: 0.9;
+    }
+    .result-box-video {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        color: white;
+        text-align: center;
+    }
+    .fade-in {
+        animation: fadeIn 0.5s ease-in-out;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .camera-container {
+        border-radius: 15px;
+        overflow: hidden;
+        border: 3px solid #667eea;
+        background: #000;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+    .status-active {
+        background: #28a745;
+        color: white;
+    }
+    .status-inactive {
+        background: #dc3545;
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================
-# 2. APPLICATION HEADER
+# HEADER
 # ============================================
+
 st.markdown("""
-<div class="dashboard-header">
-    <div class="header-title-section">
-        <h1>🖐️ BISINDO Intelligence System</h1>
-        <p>Platform enterprise klasifikasi dan penerjemah Bahasa Isyarat Indonesia secara real-time</p>
-    </div>
-    <div>
-        <span class="badge-status">● Engine V2.0 Active</span>
-    </div>
+<div class="main-header">
+    <h1>🖐️ BISINDO</h1>
+    <p>Klasifikasi Gestur Tangan Bahasa Isyarat Indonesia</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ============================================
-# 3. LOAD CORE MODELS
+# LOAD MODEL & CLASS NAMES
 # ============================================
+
 @st.cache_resource
 def load_models():
+    """Load model dan class names dari file"""
     try:
         model_path = "models"
+        
+        # Load model gambar
         image_model = tf.keras.models.load_model(f"{model_path}/image_model.h5")
+        
+        # Load model video
         video_model = tf.keras.models.load_model(f"{model_path}/video_model.h5")
         
+        # Load class names
         with open(f"{model_path}/image_class_names.pkl", "rb") as f:
             image_class_names = pickle.load(f)
+        
         with open(f"{model_path}/video_class_names.pkl", "rb") as f:
             video_class_names = pickle.load(f)
         
         return image_model, video_model, image_class_names, video_class_names
-    except:
+    
+    except Exception as e:
+        st.error(f"❌ Gagal memuat model: {e}")
         return None, None, None, None
 
-image_model, video_model, image_class_names, video_class_names = load_models()
+# ============================================
+# FUNGSI PREPROCESSING
+# ============================================
 
-# ============================================
-# 4. PREPROCESSING PIPELINES
-# ============================================
 def preprocess_image(image):
+    """Preprocessing gambar untuk MobileNetV2"""
     from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+    
     image = image.resize((224, 224))
     img_array = np.array(image, dtype=np.float32)
     img_array = preprocess_input(img_array)
     img_array = np.expand_dims(img_array, axis=0)
+    
     return img_array
 
 def preprocess_video(video_file, max_frames=20, img_size=96):
+    """Preprocessing video untuk MobileNetV2 + LSTM"""
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
         tmp_file.write(video_file.read())
         tmp_path = tmp_file.name
     
     cap = cv2.VideoCapture(tmp_path)
+    frames = []
+    
+    if not cap.isOpened():
+        os.remove(tmp_path)
+        return None
+    
     all_frames = []
     while True:
         ret, frame = cap.read()
-        if not ret: break
+        if not ret:
+            break
         all_frames.append(frame)
     cap.release()
+    os.remove(tmp_path)
     
-    try: os.remove(tmp_path)
-    except: pass
-        
     total_frames = len(all_frames)
-    if total_frames == 0: return None
+    if total_frames == 0:
+        return None
     
-    frames = []
     indices = np.linspace(0, total_frames-1, max_frames, dtype=int)
+    
     for idx in indices:
         if idx < total_frames:
             frame = all_frames[idx]
@@ -188,218 +202,548 @@ def preprocess_video(video_file, max_frames=20, img_size=96):
         else:
             frames.append(np.zeros((img_size, img_size, 3), dtype=np.float32))
     
-    return np.expand_dims(np.array(frames, dtype=np.float32), axis=0)
+    video_array = np.array(frames, dtype=np.float32)
+    video_array = np.expand_dims(video_array, axis=0)
+    
+    return video_array
+
+# ============================================
+# FUNGSI PREDIKSI
+# ============================================
+
+def predict_image(model, image, class_names):
+    """Prediksi gambar"""
+    processed = preprocess_image(image)
+    predictions = model.predict(processed, verbose=0)
+    pred_class = np.argmax(predictions[0])
+    confidence = np.max(predictions[0]) * 100
+    
+    return class_names[pred_class], confidence, predictions[0]
+
+def predict_video(model, video_file, class_names):
+    """Prediksi video"""
+    processed = preprocess_video(video_file)
+    if processed is None:
+        return None, 0, None
+    
+    predictions = model.predict(processed, verbose=0)
+    pred_class = np.argmax(predictions[0])
+    confidence = np.max(predictions[0]) * 100
+    
+    return class_names[pred_class], confidence, predictions[0]
 
 def predict_frame_gambar(model, frame, class_names):
+    """Prediksi frame untuk model gambar (Abjad) - STABIL"""
     from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    img = Image.fromarray(frame_rgb).resize((224, 224))
-    img_array = np.array(img, dtype=np.float32)
-    img_array = preprocess_input(img_array)
-    img_array = np.expand_dims(img_array, axis=0)
     
-    predictions = model.predict(img_array, verbose=0)
-    pred_class = np.argmax(predictions[0])
-    return class_names[pred_class], predictions[0][pred_class] * 100
+    try:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(frame_rgb)
+        img = img.resize((224, 224))
+        img_array = np.array(img, dtype=np.float32)
+        img_array = preprocess_input(img_array)
+        img_array = np.expand_dims(img_array, axis=0)
+        
+        predictions = model.predict(img_array, verbose=0)
+        pred_class = np.argmax(predictions[0])
+        confidence = np.max(predictions[0]) * 100
+        
+        return class_names[pred_class], confidence, predictions[0]
+    except Exception as e:
+        return "Error", 0, None
 
-def predict_live_kata(model, frame_list, class_names, img_size=96):
-    frames = []
-    for frame in frame_list:
+def predict_frame_kata(model, frame, class_names, max_frames=20, img_size=96):
+    """Prediksi frame untuk model video (Kata) - STABIL"""
+    # Inisialisasi buffer di session state
+    if 'buffer_kata' not in st.session_state:
+        st.session_state.buffer_kata = []
+    
+    try:
+        # Proses frame
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_resized = cv2.resize(frame_rgb, (img_size, img_size))
-        frames.append(frame_resized.astype(np.float32) / 255.0)
-    
-    video_array = np.expand_dims(np.array(frames, dtype=np.float32), axis=0)
-    predictions = model.predict(video_array, verbose=0)
-    pred_class = np.argmax(predictions[0])
-    return class_names[pred_class], predictions[0][pred_class] * 100
+        frame_normalized = frame_resized.astype(np.float32) / 255.0
+        
+        # Tambahkan ke buffer
+        st.session_state.buffer_kata.append(frame_normalized)
+        
+        # Jika buffer terlalu besar, potong
+        if len(st.session_state.buffer_kata) > max_frames:
+            st.session_state.buffer_kata = st.session_state.buffer_kata[-max_frames:]
+        
+        # Prediksi jika buffer penuh
+        if len(st.session_state.buffer_kata) >= max_frames:
+            frames = np.array(st.session_state.buffer_kata[-max_frames:])
+            frames = np.expand_dims(frames, axis=0)
+            
+            predictions = model.predict(frames, verbose=0)
+            pred_class = np.argmax(predictions[0])
+            confidence = np.max(predictions[0]) * 100
+            
+            return class_names[pred_class], confidence, predictions[0]
+        else:
+            return None, 0, None
+    except Exception as e:
+        return "Error", 0, None
+
+def reset_kata_buffer():
+    """Reset buffer untuk kata"""
+    if 'buffer_kata' in st.session_state:
+        st.session_state.buffer_kata = []
 
 # ============================================
-# 5. SIDEBAR CONTROL PANEL
+# SIDEBAR
 # ============================================
+
 with st.sidebar:
-    st.markdown("### 🛠️ System Control & Core Info")
-    st.info("Aplikasi berjalan dalam mode inferensi performa tinggi memanfaatkan optimasi MobileNetV2.")
-    st.markdown("---")
-    st.markdown("**Struktur Kelas Terdaftar:**")
-    st.write(f"• **Model Statis:** {len(image_class_names) if image_class_names else 0} Alfabet Terpetakan")
-    st.write(f"• **Model Dinamis:** {len(video_class_names) if video_class_names else 0} Kata Terpetakan")
-    st.markdown("---")
-    st.caption("© 2026 BISINDO Neural Translator Network Pro Tier")
+    st.markdown("""
+    <h3>📋 Informasi</h3>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    ### 🎯 Fitur
+    
+    - 📸 **Gambar**: Upload gambar gestur abjad
+    - 🎬 **Video**: Upload video gestur kata
+    - 📷 **Kamera Abjad**: Deteksi real-time abjad
+    - 📷 **Kamera Kata**: Deteksi real-time kata
+    
+    ### 📊 Dataset
+    
+    - **Abjad**: 26 huruf (A-Z)
+    - **Kata**: 24 kata BISINDO
+    
+    ### 🧠 Model
+    
+    - **Gambar**: MobileNetV2 (Transfer Learning)
+    - **Video**: MobileNetV2 + LSTM
+    """)
+    
+    st.divider()
+    
+    if st.button("🔄 Reset Buffer Kata", use_container_width=True):
+        reset_kata_buffer()
+        st.success("✅ Buffer direset!")
+    
+    st.caption("© 2024 BISINDO Classification")
 
 # ============================================
-# 6. MAIN CONTROLLER
+# MAIN APP
 # ============================================
-if image_model is None or video_model is None:
-    st.error("🚨 Master Model File (`.h5` / `.pkl`) tidak ditemukan di folder `models/`.")
-else:
+
+def main():
+    # Load model
+    with st.spinner("⏳ Memuat model..."):
+        image_model, video_model, image_class_names, video_class_names = load_models()
+    
+    if image_model is None or video_model is None:
+        st.warning("⚠️ Model tidak ditemukan. Pastikan file model ada di folder 'models/'")
+        st.info("📁 Struktur folder yang dibutuhkan:")
+        st.code("""
+        project/
+        ├── app.py
+        ├── models/
+        │   ├── image_model.h5
+        │   ├── video_model.h5
+        │   ├── image_class_names.pkl
+        │   └── video_class_names.pkl
+        └── requirements.txt
+        """)
+        return
+    
+    # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📂 Unggah Citra (Abjad)",
-        "📂 Unggah Video (Kata)",
-        "⚡ Live Stream (Abjad/Huruf)",
-        "⚡ Live Stream (Kata/Kalimat)"
+        "📸 Gambar (Abjad)",
+        "🎬 Video (Kata)",
+        "📷 Kamera (Abjad)",
+        "📷 Kamera (Kata)"
     ])
-
-    # ----------------------------------------------------------------
-    # TAB 1: ASSET IMAGE UPLOADER
-    # ----------------------------------------------------------------
+    
+    # ============================================
+    # TAB 1: GAMBAR (ABJAD)
+    # ============================================
+    
     with tab1:
-        st.markdown('<div class="pro-card"><h3>Analisis File Gambar Statis</h3><p>Sistem akan memindai kontur geometris tangan dari berkas gambar yang diunggah.</p></div>', unsafe_allow_html=True)
-        col1, col2 = st.columns([1, 1], gap="medium")
+        st.markdown("""
+        <div class="card">
+            <h3>📸 Upload Gambar</h3>
+            <p>Upload gambar gestur tangan abjad (A-Z)</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        uploaded_file = st.file_uploader(
+            "Pilih file gambar...",
+            type=["jpg", "jpeg", "png", "bmp", "tiff"],
+            accept_multiple_files=False,
+            key="image_uploader"
+        )
+        
+        col1, col2 = st.columns([2, 1])
         
         with col1:
-            uploaded_img = st.file_uploader("Unggah berkas gambar (JPG, PNG)", type=["jpg", "jpeg", "png"], key="img_pro")
-            if uploaded_img:
-                image = Image.open(uploaded_img)
-                st.image(image, caption="Preview Asset", use_container_width=True)
+            if uploaded_file is not None:
+                image = Image.open(uploaded_file)
+                st.image(image, caption="🖼️ Gambar yang diupload", use_container_width=True)
         
         with col2:
-            if uploaded_img:
-                if st.button("Jalankan Inferensi Gambar", type="primary", use_container_width=True):
-                    with st.spinner("Menghitung matriks probabilitas..."):
-                        processed = preprocess_image(image)
-                        probs = image_model.predict(processed, verbose=0)[0]
-                        pred_idx = np.argmax(probs)
-                        
-                        label = image_class_names[pred_idx]
-                        confidence = probs[pred_idx] * 100
+            if uploaded_file is not None:
+                if st.button("🔍 Prediksi Gambar", type="primary", use_container_width=True):
+                    with st.spinner("⏳ Memproses prediksi..."):
+                        start_time = time.time()
+                        label, confidence, all_probs = predict_image(
+                            image_model, image, image_class_names
+                        )
+                        elapsed = time.time() - start_time
                         
                         st.markdown(f"""
-                        <div class="kpi-box">
-                            <div class="kpi-title">Hasil Klasifikasi Dominan</div>
-                            <div class="kpi-value">Abjad: {label}</div>
-                            <div style="color: #166534; font-size: 0.9rem; font-weight: 500;">Tingkat Kepercayaan: {confidence:.2f}%</div>
+                        <div class="result-box fade-in">
+                            <h2>🎯 {label}</h2>
+                            <p class="confidence">Confidence: {confidence:.2f}%</p>
+                            <p style="font-size:0.8rem; opacity:0.7;">⏱️ {elapsed:.2f} detik</p>
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        st.markdown("<br><b>Distribusi Keyakinan Model:</b>", unsafe_allow_html=True)
-                        top5 = np.argsort(probs)[-5:][::-1]
-                        for idx in top5:
-                            st.text(f"Kelas [{image_class_names[idx]}]: {probs[idx]*100:.1f}%")
-                            st.progress(float(probs[idx]))
+                        st.subheader("📊 Top 5 Prediksi")
+                        top_indices = np.argsort(all_probs)[-5:][::-1]
+                        for idx in top_indices:
+                            prob = float(all_probs[idx] * 100)
+                            col_progress, col_label = st.columns([3, 1])
+                            with col_progress:
+                                st.progress(prob / 100)
+                            with col_label:
+                                st.write(f"{image_class_names[idx]} {prob:.1f}%")
             else:
-                st.info("💡 Hubungkan dokumen gambar di panel kiri untuk mengaktifkan kalkulasi model.")
-
-    # ----------------------------------------------------------------
-    # TAB 2: ASSET VIDEO UPLOADER
-    # ----------------------------------------------------------------
+                st.info("⬅️ Upload gambar untuk memulai prediksi")
+    
+    # ============================================
+    # TAB 2: VIDEO (KATA)
+    # ============================================
+    
     with tab2:
-        st.markdown('<div class="pro-card"><h3>Analisis Rekaman Video Isyarat</h3><p>Ekstraksi otomatis untuk mengidentifikasi klasifikasi kata dinamis.</p></div>', unsafe_allow_html=True)
-        col1, col2 = st.columns([1, 1], gap="medium")
+        st.markdown("""
+        <div class="card">
+            <h3>🎬 Upload Video</h3>
+            <p>Upload video gestur tangan kata BISINDO</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        uploaded_file = st.file_uploader(
+            "Pilih file video...",
+            type=["mp4", "avi", "mov", "mkv"],
+            accept_multiple_files=False,
+            key="video_uploader"
+        )
+        
+        col1, col2 = st.columns([2, 1])
         
         with col1:
-            uploaded_vid = st.file_uploader("Unggah rekaman video (MP4, MOV)", type=["mp4", "mov"], key="vid_pro")
-            if uploaded_vid:
-                st.video(uploaded_vid)
+            if uploaded_file is not None:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+                    tmp_file.write(uploaded_file.read())
+                    tmp_path = tmp_file.name
+                
+                cap = cv2.VideoCapture(tmp_path)
+                ret, frame = cap.read()
+                cap.release()
+                os.remove(tmp_path)
+                
+                if ret:
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    st.image(frame_rgb, caption="🎬 Sample Frame Video", use_container_width=True)
+                else:
+                    st.warning("⚠️ Tidak dapat membaca video")
         
         with col2:
-            if uploaded_vid:
-                if st.button("Jalankan Inferensi Video", type="primary", use_container_width=True):
-                    with st.spinner("Memproses urutan struktur temporal video..."):
-                        processed_vid = preprocess_video(uploaded_vid)
-                        if processed_vid is not None:
-                            probs = video_model.predict(processed_vid, verbose=0)[0]
-                            pred_idx = np.argmax(probs)
-                            
-                            label = video_class_names[pred_idx]
-                            confidence = probs[pred_idx] * 100
-                            
+            if uploaded_file is not None:
+                if st.button("🔍 Prediksi Video", type="primary", use_container_width=True):
+                    uploaded_file.seek(0)
+                    
+                    with st.spinner("⏳ Memproses prediksi..."):
+                        start_time = time.time()
+                        label, confidence, all_probs = predict_video(
+                            video_model, uploaded_file, video_class_names
+                        )
+                        elapsed = time.time() - start_time
+                        
+                        if label is None:
+                            st.error("❌ Gagal memproses video!")
+                        else:
                             st.markdown(f"""
-                            <div class="kpi-box">
-                                <div class="kpi-title">Kata Isyarat Terjemahan</div>
-                                <div class="kpi-value">"{label.upper()}"</div>
-                                <div style="color: #166534; font-size: 0.9rem; font-weight: 500;">Tingkat Konfidensi Sekuensial: {confidence:.2f}%</div>
+                            <div class="result-box-video fade-in">
+                                <h2>🎯 {label}</h2>
+                                <p class="confidence">Confidence: {confidence:.2f}%</p>
+                                <p style="font-size:0.8rem; opacity:0.7;">⏱️ {elapsed:.2f} detik</p>
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            st.markdown("<br><b>Top Estimasi Alternatif:</b>", unsafe_allow_html=True)
-                            top5_vid = np.argsort(probs)[-5:][::-1]
-                            for idx in top5_vid:
-                                st.text(f"Kata ({video_class_names[idx]}): {probs[idx]*100:.1f}%")
-                                st.progress(float(probs[idx]))
-                        else:
-                            st.error("Gagal mengurai susunan berkas video.")
+                            st.subheader("📊 Top 5 Prediksi")
+                            top_indices = np.argsort(all_probs)[-5:][::-1]
+                            for idx in top_indices:
+                                prob = float(all_probs[idx] * 100)
+                                col_progress, col_label = st.columns([3, 1])
+                                with col_progress:
+                                    st.progress(prob / 100)
+                                with col_label:
+                                    st.write(f"{video_class_names[idx]} {prob:.1f}%")
             else:
-                st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
-
-    # ----------------------------------------------------------------
-    # TAB 3 & 4: LIVE STREAM CAMERA WITH PROTECTED FALLBACK
-    # ----------------------------------------------------------------
-    # Menggunakan logika deteksi otomatis lingkungan server cloud / local localhost
-    is_cloud = "STREAMLIT_SERVER_COOKIE_SECRET" in os.environ or "bisindo" in st.navigation
-
+                st.info("⬅️ Upload video untuk memulai prediksi")
+    
+    # ============================================
+    # TAB 3: KAMERA ABJAD (REAL-TIME)
+    # ============================================
+    
     with tab3:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3></div>', unsafe_allow_html=True)
-        if is_cloud:
-            st.warning("⚠️ **Deteksi Kamera Terbatas di Cloud**")
-            st.info("OpenCV bawaan tidak diizinkan membuka kamera web lokal Anda dari cloud. Untuk pengujian kamera langsung secara optimal, disarankan menjalankan aplikasi ini di komputer lokal (Localhost) dengan perintah `streamlit run app.py`.")
-        else:
-            c1, c2 = st.columns([2, 1], gap="medium")
-            with c1:
-                run_abjad = st.toggle("Aktifkan Jalur Kamera Abjad", key="tg_abjad")
-                frame_window = st.empty()
-            with c2:
-                st.markdown("##### 📊 LOG PREDIKSI SISTEM")
-                lbl_placeholder = st.empty()
-                conf_placeholder = st.empty()
-                
-            if run_abjad:
+        st.markdown("""
+        <div class="card">
+            <h3>📷 Deteksi Real-Time Abjad dengan Kamera</h3>
+            <p>Deteksi gestur abjad (A-Z) secara langsung dari kamera</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col_cam, col_result = st.columns([2, 1])
+        
+        with col_cam:
+            st.markdown("### 📷 Live Camera")
+            
+            video_placeholder = st.empty()
+            status_placeholder = st.empty()
+            
+            col_start, col_stop = st.columns(2)
+            with col_start:
+                start = st.button("▶️ Start Camera", type="primary", use_container_width=True, key="start_abjad")
+            with col_stop:
+                stop = st.button("⏹️ Stop Camera", use_container_width=True, key="stop_abjad")
+        
+        with col_result:
+            st.markdown("### 🎯 Hasil Deteksi")
+            result_placeholder = st.empty()
+        
+        # State
+        if 'cam_abjad_running' not in st.session_state:
+            st.session_state.cam_abjad_running = False
+            st.session_state.cam_abjad_label = "Menunggu..."
+            st.session_state.cam_abjad_conf = 0
+        
+        if start:
+            st.session_state.cam_abjad_running = True
+            st.session_state.cam_abjad_label = "Memulai..."
+            st.session_state.cam_abjad_conf = 0
+        
+        if stop:
+            st.session_state.cam_abjad_running = False
+            video_placeholder.empty()
+            result_placeholder.empty()
+            status_placeholder.empty()
+        
+        if st.session_state.cam_abjad_running:
+            try:
                 cap = cv2.VideoCapture(0)
                 if not cap.isOpened():
-                    st.error("Sistem gagal terhubung ke perangkat keras Kamera lokal.")
+                    st.error("❌ Kamera tidak tersedia!")
+                    st.session_state.cam_abjad_running = False
                 else:
-                    while run_abjad:
+                    status_placeholder.info("🟢 Kamera aktif...")
+                    
+                    frame_count = 0
+                    while st.session_state.cam_abjad_running:
                         ret, frame = cap.read()
-                        if not ret: break
-                        frame = cv2.flip(frame, 1)
-                        label, conf = predict_frame_gambar(image_model, frame, image_class_names)
+                        if not ret:
+                            break
                         
-                        lbl_placeholder.markdown(f'<div class="kpi-box"><div class="kpi-title">Karakter Terbaca</div><div class="kpi-value" style="color: #4f46e5;">{label}</div></div>', unsafe_allow_html=True)
-                        conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
+                        frame_count += 1
                         
-                        frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        frame_window.image(frame_disp, channels="RGB", use_container_width=True)
-                        time.sleep(0.04)
+                        # Prediksi setiap 5 frame
+                        if frame_count % 5 == 0:
+                            label, conf, _ = predict_frame_gambar(
+                                image_model, frame, image_class_names
+                            )
+                            if label != "Error":
+                                st.session_state.cam_abjad_label = label
+                                st.session_state.cam_abjad_conf = conf
+                        
+                        # Anotasi frame
+                        label_text = f"{st.session_state.cam_abjad_label} ({st.session_state.cam_abjad_conf:.1f}%)"
+                        cv2.putText(frame, label_text, (10, 30), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                        cv2.putText(frame, f"Frame: {frame_count}", (10, 60), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                        
+                        # Tampilkan frame
+                        try:
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                        except Exception:
+                            pass
+                        
+                        # Update hasil
+                        if frame_count % 5 == 0:
+                            try:
+                                result_placeholder.markdown(f"""
+                                <div class="result-box fade-in">
+                                    <h2 style="font-size:2rem;">🎯 {st.session_state.cam_abjad_label}</h2>
+                                    <p class="confidence">Confidence: {st.session_state.cam_abjad_conf:.1f}%</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                            except Exception:
+                                pass
+                        
+                        time.sleep(0.03)
+                    
                     cap.release()
-                    frame_window.empty()
-
+                    video_placeholder.empty()
+                    result_placeholder.empty()
+                    status_placeholder.empty()
+                    
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+                st.session_state.cam_abjad_running = False
+                video_placeholder.empty()
+                result_placeholder.empty()
+                status_placeholder.empty()
+        else:
+            status_placeholder.info("⏸️ Klik 'Start Camera' untuk memulai")
+            result_placeholder.info("📷 Mulai kamera untuk melihat hasil")
+    
+    # ============================================
+    # TAB 4: KAMERA KATA (REAL-TIME)
+    # ============================================
+    
     with tab4:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3></div>', unsafe_allow_html=True)
-        if is_cloud:
-            st.warning("⚠️ **Deteksi Kamera Terbatas di Cloud**")
-            st.info("Gunakan opsi **📂 Unggah Video (Kata)** di Tab ke-2 untuk menguji fungsionalitas model isyarat kata secara penuh di server awan.")
-        else:
-            c1, c2 = st.columns([2, 1], gap="medium")
-            with c1:
-                run_kata = st.toggle("Aktifkan Jalur Kamera Kata", key="tg_kata")
-                frame_window_kata = st.empty()
-            with c2:
-                st.markdown("##### 📊 ANALISIS BINGKAI TEMPORAL")
-                buffer_progress = st.empty()
-                kata_lbl = st.empty()
-                
-            if run_kata:
+        st.markdown("""
+        <div class="card">
+            <h3>📷 Deteksi Real-Time Kata dengan Kamera</h3>
+            <p>Deteksi gestur kata BISINDO secara langsung dari kamera</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col_cam, col_result = st.columns([2, 1])
+        
+        with col_cam:
+            st.markdown("### 📷 Live Camera")
+            
+            video_placeholder = st.empty()
+            status_placeholder = st.empty()
+            
+            col_start, col_stop = st.columns(2)
+            with col_start:
+                start = st.button("▶️ Start Camera", type="primary", use_container_width=True, key="start_kata")
+            with col_stop:
+                stop = st.button("⏹️ Stop Camera", use_container_width=True, key="stop_kata")
+        
+        with col_result:
+            st.markdown("### 🎯 Hasil Deteksi")
+            result_placeholder = st.empty()
+        
+        # State
+        if 'cam_kata_running' not in st.session_state:
+            st.session_state.cam_kata_running = False
+            st.session_state.cam_kata_label = "Menunggu..."
+            st.session_state.cam_kata_conf = 0
+        
+        if 'buffer_kata' not in st.session_state:
+            st.session_state.buffer_kata = []
+        
+        if start:
+            st.session_state.cam_kata_running = True
+            st.session_state.cam_kata_label = "Mengisi buffer..."
+            st.session_state.cam_kata_conf = 0
+            st.session_state.buffer_kata = []
+        
+        if stop:
+            st.session_state.cam_kata_running = False
+            st.session_state.buffer_kata = []
+            video_placeholder.empty()
+            result_placeholder.empty()
+            status_placeholder.empty()
+        
+        if st.session_state.cam_kata_running:
+            try:
                 cap = cv2.VideoCapture(0)
-                live_buf = deque(maxlen=20)
                 if not cap.isOpened():
-                    st.error("Gagal memuat sensor kamera aktif lokal.")
+                    st.error("❌ Kamera tidak tersedia!")
+                    st.session_state.cam_kata_running = False
                 else:
-                    while run_kata:
+                    status_placeholder.info("🟢 Kamera aktif...")
+                    
+                    frame_count = 0
+                    while st.session_state.cam_kata_running:
                         ret, frame = cap.read()
-                        if not ret: break
-                        frame = cv2.flip(frame, 1)
-                        live_buf.append(frame)
-                        current_len = len(live_buf)
+                        if not ret:
+                            break
                         
-                        buffer_progress.progress(float(current_len / 20), text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed")
-                        if current_len == 20:
-                            label, conf = predict_live_kata(video_model, list(live_buf), video_class_names)
-                            kata_lbl.markdown(f'<div class="kpi-box" style="border-left-color: #10b981;"><div class="kpi-title">Terjemahan Frasa/Kata</div><div class="kpi-value" style="color: #059669;">"{label.upper()}"</div><small style="color: #64748b;">Akurasi Sekuensial: {conf:.1f}%</small></div>', unsafe_allow_html=True)
+                        frame_count += 1
+                        
+                        # Prediksi dengan buffer
+                        label, conf, _ = predict_frame_kata(
+                            video_model, frame, video_class_names
+                        )
+                        
+                        if label is not None and label != "Error":
+                            st.session_state.cam_kata_label = label
+                            st.session_state.cam_kata_conf = conf
+                        elif label == "Error":
+                            st.session_state.cam_kata_label = "Error"
+                            st.session_state.cam_kata_conf = 0
                         else:
-                            kata_lbl.warning("Menyelaraskan data sekuens...")
-                            
-                        frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        frame_window_kata.image(frame_disp, channels="RGB", use_container_width=True)
-                        time.sleep(0.04)
+                            # Sedang mengisi buffer
+                            buffer_size = len(st.session_state.buffer_kata)
+                            st.session_state.cam_kata_label = f"Mengisi buffer... ({buffer_size}/20)"
+                            st.session_state.cam_kata_conf = 0
+                        
+                        # Anotasi frame
+                        buffer_size = len(st.session_state.buffer_kata)
+                        label_text = f"{st.session_state.cam_kata_label} ({st.session_state.cam_kata_conf:.1f}%)"
+                        cv2.putText(frame, label_text, (10, 30), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                        cv2.putText(frame, f"Buffer: {buffer_size}/20", (10, 60), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                        
+                        # Tampilkan frame
+                        try:
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                        except Exception:
+                            pass
+                        
+                        # Update hasil
+                        try:
+                            if st.session_state.cam_kata_conf > 0:
+                                result_placeholder.markdown(f"""
+                                <div class="result-box-video fade-in">
+                                    <h2 style="font-size:2rem;">🎯 {st.session_state.cam_kata_label}</h2>
+                                    <p class="confidence">Confidence: {st.session_state.cam_kata_conf:.1f}%</p>
+                                    <p style="font-size:0.8rem; opacity:0.7;">Buffer: {buffer_size}/20 ✅</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                            else:
+                                result_placeholder.markdown(f"""
+                                <div class="result-box fade-in" style="background: #6c757d;">
+                                    <h2 style="font-size:1.5rem;">⏳ {st.session_state.cam_kata_label}</h2>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        except Exception:
+                            pass
+                        
+                        time.sleep(0.03)
+                    
                     cap.release()
-                    frame_window_kata.empty()
+                    video_placeholder.empty()
+                    result_placeholder.empty()
+                    status_placeholder.empty()
+                    
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+                st.session_state.cam_kata_running = False
+                video_placeholder.empty()
+                result_placeholder.empty()
+                status_placeholder.empty()
+        else:
+            status_placeholder.info("⏸️ Klik 'Start Camera' untuk memulai")
+            result_placeholder.info("📷 Mulai kamera untuk melihat hasil")
+
+# ============================================
+# RUN APP
+# ============================================
+
+if __name__ == "__main__":
+    main()
