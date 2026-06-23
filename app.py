@@ -380,12 +380,12 @@ else:
                                 st.text(f"Kata ({video_class_names[idx]}): {probs[idx]*100:.1f}%")
                                 st.progress(float(probs[idx]))
                         else:
-                            st.error("Gagal mengurai susunan berkas video.")
+                            st.error("Gagal mengurai susunan berkas视频.")
             else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM CAMERA (ABJAD)
+    # TAB 3: LIVE STREAM CAMERA (ABJAD) - DIPERBAIKI
     # ----------------------------------------------------------------
     with tab3:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
@@ -400,14 +400,25 @@ else:
             conf_placeholder = st.empty()
             
         if run_abjad:
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
+            # COBA BEBERAPA INDEX KAMERA
+            cap = None
+            for i in range(3):  # Coba index 0, 1, 2
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    break
+                else:
+                    cap.release()
+                    cap = None
+            
+            if cap is None:
                 st.error("Sistem gagal terhubung ke perangkat keras Kamera.")
                 st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
             else:
                 while run_abjad:
                     ret, frame = cap.read()
-                    if not ret: break
+                    if not ret: 
+                        st.warning("Kamera terputus, mencoba reconnect...")
+                        break
                     
                     frame = cv2.flip(frame, 1)
                     label, conf = predict_frame_gambar(image_model, frame, image_class_names)
@@ -430,7 +441,7 @@ else:
             frame_window.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
 
     # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM CAMERA (KATA)
+    # TAB 4: LIVE STREAM CAMERA (KATA) - DIPERBAIKI
     # ----------------------------------------------------------------
     with tab4:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinambungan.</p></div>', unsafe_allow_html=True)
@@ -445,8 +456,17 @@ else:
             kata_lbl = st.empty()
             
         if run_kata:
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
+            # COBA BEBERAPA INDEX KAMERA
+            cap = None
+            for i in range(3):  # Coba index 0, 1, 2
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    break
+                else:
+                    cap.release()
+                    cap = None
+            
+            if cap is None:
                 st.error("Gagal memuat sensor kamera aktif.")
                 st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
             else:
@@ -454,7 +474,9 @@ else:
                 
                 while run_kata:
                     ret, frame = cap.read()
-                    if not ret: break
+                    if not ret:
+                        st.warning("Kamera terputus, mencoba reconnect...")
+                        break
                     
                     frame = cv2.flip(frame, 1)
                     live_buf.append(frame)
