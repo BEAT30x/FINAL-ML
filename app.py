@@ -1,7 +1,7 @@
 """
 ====================================================================
 APLIKASI KLASIFIKASI GESTUR TANGAN BISINDO
-Bahasa Isyarat Indonesia (BISINDO) - WITH CAMERA SUPPORT
+Bahasa Isyarat Indonesia (BISINDO) - REAL-TIME CAMERA
 ====================================================================
 """
 
@@ -16,6 +16,7 @@ import tempfile
 import time
 import base64
 import io
+import threading
 
 # ============================================
 # KONFIGURASI HALAMAN
@@ -78,6 +79,14 @@ st.markdown("""
         border-radius: 15px;
         overflow: hidden;
         background: #000;
+    }
+    .status-active {
+        color: #28a745;
+        font-weight: bold;
+    }
+    .status-inactive {
+        color: #dc3545;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -148,6 +157,19 @@ def predict_image(model, image, class_names):
     confidence = np.max(predictions[0]) * 100
     return class_names[pred_class], confidence, predictions[0]
 
+def predict_image_from_array(image_array, model, class_names):
+    """Prediksi dari array numpy"""
+    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+    img = Image.fromarray(image_array)
+    img = img.resize((224, 224))
+    img_array = np.array(img, dtype=np.float32)
+    img_array = preprocess_input(img_array)
+    img_array = np.expand_dims(img_array, axis=0)
+    predictions = model.predict(img_array, verbose=0)
+    pred_class = np.argmax(predictions[0])
+    confidence = np.max(predictions[0]) * 100
+    return class_names[pred_class], confidence, predictions[0]
+
 def predict_video(model, video_file, class_names):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
         tmp_file.write(video_file.read())
@@ -191,89 +213,182 @@ def predict_video(model, video_file, class_names):
     return class_names[pred_class], confidence, predictions[0]
 
 # ============================================
-# FUNGSI CAMERA CAPTURE (JAVASCRIPT)
+# REAL-TIME CAMERA HTML
 # ============================================
 
-def camera_capture_html():
-    """HTML/JavaScript untuk capture dari kamera browser"""
+def realtime_camera_html():
+    """HTML/JavaScript untuk real-time camera streaming"""
     return """
     <div style="text-align: center; margin: 10px 0;">
         <div class="camera-preview">
             <video id="video" width="100%" height="auto" autoplay style="max-height: 400px;"></video>
         </div>
         <br>
-        <button id="capture" style="background: #667eea; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-            📸 Capture & Predict
-        </button>
-        <button id="capture_kata" style="background: #4facfe; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold; margin-left: 10px;">
-            🎬 Capture Kata
-        </button>
+        <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+            <button id="startBtn" style="background: #28a745; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
+                ▶️ Start
+            </button>
+            <button id="stopBtn" style="background: #dc3545; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
+                ⏹️ Stop
+            </button>
+            <button id="captureBtn" style="background: #667eea; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
+                📸 Capture Now
+            </button>
+        </div>
+        <br>
+        <div id="status" style="font-size: 16px; font-weight: bold; min-height: 30px;">⏸️ Camera stopped</div>
+        <div id="result" style="font-size: 20px; font-weight: bold; min-height: 50px; margin-top: 10px;"></div>
         <canvas id="canvas" style="display: none;"></canvas>
-        <br><br>
-        <div id="result" style="font-size: 18px; font-weight: bold; color: #333; min-height: 50px;"></div>
     </div>
     
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const captureBtn = document.getElementById('capture');
-        const captureKataBtn = document.getElementById('capture_kata');
+        const ctx = canvas.getContext('2d');
+        const statusDiv = document.getElementById('status');
         const resultDiv = document.getElementById('result');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const captureBtn = document.getElementById('captureBtn');
         
-        // Inisialisasi kamera
         let stream = null;
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
-            .then(mediaStream => {
-                stream = mediaStream;
-                video.srcObject = mediaStream;
-                resultDiv.innerHTML = '🟢 Camera ready!';
-                resultDiv.style.color = 'green';
-            })
-            .catch(err => {
-                resultDiv.innerHTML = '❌ Gagal mengakses kamera: ' + err.message;
-                resultDiv.style.color = 'red';
-            });
+        let isRunning = false;
+        let intervalId = null;
+        let isCapturing = false;
         
-        // Fungsi capture
-        function captureImage(mode) {
-            if (!stream) {
-                resultDiv.innerHTML = '❌ Kamera belum siap!';
-                resultDiv.style.color = 'red';
-                return;
-            }
-            
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            // Kirim ke Streamlit
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+        // Fungsi update status
+        function updateStatus(text, color) {
+            statusDiv.textContent = text;
+            statusDiv.style.color = color || '#333';
+        }
+        
+        // Fungsi update result
+        function updateResult(text, color) {
+            resultDiv.textContent = text;
+            resultDiv.style.color = color || '#333';
+        }
+        
+        // Kirim data ke Streamlit
+        function sendToStreamlit(imageData, mode) {
             const data = {
-                type: 'camera_image',
+                type: 'camera_frame',
                 mode: mode,
                 image: imageData
             };
-            
-            resultDiv.innerHTML = '⏳ Memproses...';
-            resultDiv.style.color = '#667eea';
-            
-            // Kirim data ke Streamlit
             window.parent.postMessage(data, '*');
         }
         
+        // Capture frame
+        function captureFrame(mode) {
+            if (!isRunning) {
+                updateResult('⚠️ Start camera dulu!', 'orange');
+                return;
+            }
+            
+            isCapturing = true;
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            updateResult('⏳ Memproses...', '#667eea');
+            
+            // Kirim ke Streamlit dengan mode
+            sendToStreamlit(imageData, mode);
+            
+            setTimeout(() => {
+                isCapturing = false;
+            }, 100);
+        }
+        
+        // Start camera
+        function startCamera() {
+            if (isRunning) {
+                updateResult('⚠️ Camera sudah berjalan!', 'orange');
+                return;
+            }
+            
+            navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'user', width: 640, height: 480 } 
+            })
+            .then(mediaStream => {
+                stream = mediaStream;
+                video.srcObject = mediaStream;
+                video.play();
+                isRunning = true;
+                updateStatus('🟢 Camera running', '#28a745');
+                updateResult('🟢 Camera ready!', '#28a745');
+                
+                // Mulai real-time prediction setiap 500ms
+                if (intervalId) clearInterval(intervalId);
+                intervalId = setInterval(() => {
+                    if (isRunning && !isCapturing) {
+                        // Auto capture untuk real-time
+                        canvas.width = video.videoWidth || 640;
+                        canvas.height = video.videoHeight || 480;
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+                        sendToStreamlit(imageData, 'realtime');
+                    }
+                }, 500); // Prediksi setiap 500ms
+            })
+            .catch(err => {
+                updateStatus('❌ Error: ' + err.message, '#dc3545');
+                updateResult('❌ Gagal akses kamera!', '#dc3545');
+                console.error('Camera error:', err);
+            });
+        }
+        
+        // Stop camera
+        function stopCamera() {
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+            }
+            
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            
+            if (video.srcObject) {
+                video.srcObject = null;
+            }
+            
+            isRunning = false;
+            isCapturing = false;
+            updateStatus('⏸️ Camera stopped', '#6c757d');
+            updateResult('⏸️ Camera stopped', '#6c757d');
+        }
+        
+        // Event listeners
+        startBtn.addEventListener('click', startCamera);
+        stopBtn.addEventListener('click', stopCamera);
         captureBtn.addEventListener('click', function() {
-            captureImage('abjad');
+            captureFrame('manual');
         });
         
-        captureKataBtn.addEventListener('click', function() {
-            captureImage('kata');
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 's' || e.key === 'S') {
+                startCamera();
+            } else if (e.key === 'x' || e.key === 'X') {
+                stopCamera();
+            } else if (e.key === 'c' || e.key === 'C') {
+                captureFrame('manual');
+            }
         });
         
-        // Kirim notifikasi ke Streamlit bahwa JavaScript siap
+        // Notify Streamlit that JavaScript is ready
         window.onload = function() {
             window.parent.postMessage({ type: 'camera_ready' }, '*');
+            updateStatus('⏸️ Click Start or press S', '#6c757d');
         };
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            stopCamera();
+        });
     </script>
     """
 
@@ -296,7 +411,12 @@ def main():
         **Fitur:**
         - 📸 Gambar (Abjad A-Z)
         - 🎬 Video (Kata BISINDO)
-        - 📷 Kamera (Abjad & Kata)
+        - 📷 Kamera Real-Time
+        
+        **Keyboard Shortcuts:**
+        - `S` = Start Camera
+        - `X` = Stop Camera
+        - `C` = Capture
         
         **Dataset:**
         - Abjad: 26 huruf
@@ -306,7 +426,7 @@ def main():
         st.caption("© 2024 BISINDO Classification")
     
     tab1, tab2, tab3 = st.tabs([
-        "📸 Gambar", "🎬 Video", "📷 Kamera"
+        "📸 Gambar", "🎬 Video", "📷 Kamera Real-Time"
     ])
     
     # ==================== TAB 1: GAMBAR ====================
@@ -343,81 +463,140 @@ def main():
                 else:
                     st.error("Gagal memproses video!")
     
-    # ==================== TAB 3: KAMERA ====================
+    # ==================== TAB 3: KAMERA REAL-TIME ====================
     with tab3:
         st.markdown("""
         <div class="card">
-            <h3>📷 Kamera BISINDO</h3>
-            <p>Ambil gambar dari kamera untuk mendeteksi gestur</p>
+            <h3>📷 Kamera Real-Time</h3>
+            <p>Deteksi gestur secara real-time dari kamera</p>
             <p style="color: red; font-size: 0.9rem;">⚠️ Izinkan akses kamera saat diminta browser</p>
+            <p style="font-size: 0.9rem;">
+                💡 <b>Shortcuts:</b> <kbd>S</kbd> Start | <kbd>X</kbd> Stop | <kbd>C</kbd> Capture
+            </p>
         </div>
         """, unsafe_allow_html=True)
         
         col_cam, col_result = st.columns([2, 1])
         
         with col_cam:
-            # HTML Kamera
-            st.components.v1.html(camera_capture_html(), height=550)
-            
-            # Hidden component untuk menerima data dari JavaScript
-            camera_data = st.session_state.get('camera_data', None)
+            # HTML Kamera Real-Time
+            st.components.v1.html(realtime_camera_html(), height=600)
         
         with col_result:
             st.markdown("### 🎯 Hasil Deteksi")
             result_container = st.empty()
+            confidence_container = st.empty()
             
-            # Upload alternatif jika JavaScript tidak berfungsi
+            # State untuk hasil kamera
+            if 'camera_result' not in st.session_state:
+                st.session_state.camera_result = "Menunggu..."
+                st.session_state.camera_confidence = 0
+                st.session_state.camera_mode = "abjad"
+            
+            # Tampilkan hasil real-time
+            if st.session_state.camera_result:
+                if st.session_state.camera_mode == "abjad":
+                    result_container.markdown(f"""
+                    <div class="result-box fade-in">
+                        <h2 style="font-size:2rem;">🎯 {st.session_state.camera_result}</h2>
+                        <p class="confidence">Confidence: {st.session_state.camera_confidence:.1f}%</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    result_container.markdown(f"""
+                    <div class="result-box-video fade-in">
+                        <h2 style="font-size:2rem;">🎯 {st.session_state.camera_result}</h2>
+                        <p class="confidence">Confidence: {st.session_state.camera_confidence:.1f}%</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Progress bar confidence
+                confidence_container.progress(st.session_state.camera_confidence / 100)
+            
+            # Tombol reset
+            if st.button("🔄 Reset", use_container_width=True):
+                st.session_state.camera_result = "Menunggu..."
+                st.session_state.camera_confidence = 0
+                st.rerun()
+            
+            # Info
             st.markdown("---")
-            st.markdown("### 📤 Alternatif: Upload Hasil Capture")
-            
-            captured_file = st.file_uploader(
-                "Upload gambar hasil capture...",
-                type=["jpg", "jpeg", "png"],
-                key="captured_image"
-            )
-            
-            if captured_file is not None:
-                image = Image.open(captured_file)
-                st.image(image, caption="📷 Gambar dari kamera", use_container_width=True)
-                
-                # Pilih mode
-                mode = st.radio("Pilih mode:", ["Abjad", "Kata"], horizontal=True)
-                
-                if st.button("🔍 Prediksi Hasil Kamera", type="primary", use_container_width=True):
-                    with st.spinner("⏳ Memproses prediksi..."):
-                        if mode == "Abjad":
-                            label, conf, all_probs = predict_image(
-                                image_model, image, image_class_names
-                            )
-                            class_names = image_class_names
-                        else:
-                            # Untuk kata, kita butuh video. Tapi kita bisa menggunakan gambar sebagai sequence
-                            st.warning("⚠️ Mode Kata membutuhkan video. Gunakan fitur Capture Kata di atas.")
-                            label = "Gunakan Capture Kata"
-                            conf = 0
-                            all_probs = None
-                        
-                        if all_probs is not None:
-                            result_container.markdown(f"""
-                            <div class="result-box fade-in">
-                                <h2>🎯 {label}</h2>
-                                <p class="confidence">Confidence: {conf:.2f}%</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            st.subheader("📊 Top 5 Prediksi")
-                            top_indices = np.argsort(all_probs)[-5:][::-1]
-                            for idx in top_indices:
-                                prob = float(all_probs[idx] * 100)
-                                col_progress, col_label = st.columns([3, 1])
-                                with col_progress:
-                                    st.progress(prob / 100)
-                                with col_label:
-                                    st.write(f"{class_names[idx]} {prob:.1f}%")
+            st.markdown("""
+            <div style="background: #f0f2f6; padding: 1rem; border-radius: 10px; font-size: 0.9rem;">
+                <b>📝 Catatan:</b>
+                <br>• Kamera akan memprediksi setiap 500ms
+                <br>• Gunakan tombol Capture untuk hasil terbaik
+                <br>• Pastikan pencahayaan cukup
+            </div>
+            """, unsafe_allow_html=True)
+
+# ============================================
+# LISTENER UNTUK DATA DARI JAVASCRIPT
+# ============================================
+
+# Komponen tersembunyi untuk menerima data dari JavaScript
+def camera_listener():
+    """Menerima data dari JavaScript via postMessage"""
+    import streamlit.components.v1 as components
+    
+    listener_html = """
+    <script>
+        window.addEventListener('message', function(event) {
+            const data = event.data;
+            if (data && data.type === 'camera_frame') {
+                // Simpan data ke session storage
+                sessionStorage.setItem('camera_image', data.image);
+                sessionStorage.setItem('camera_mode', data.mode);
+                // Kirim ke Streamlit melalui URL parameter
+                window.location.href = window.location.href.split('?')[0] + 
+                    '?camera_image=' + encodeURIComponent(data.image) +
+                    '&camera_mode=' + data.mode;
+            }
+        });
+    </script>
+    """
+    components.html(listener_html, height=0)
 
 # ============================================
 # RUN APP
 # ============================================
 
 if __name__ == "__main__":
+    # Proses data dari URL jika ada
+    import urllib.parse
+    
+    query_params = st.query_params
+    
+    if 'camera_image' in query_params:
+        try:
+            image_data = query_params['camera_image']
+            mode = query_params.get('camera_mode', 'realtime')
+            
+            # Decode image
+            img_data = base64.b64decode(image_data.split(',')[1])
+            img = Image.open(io.BytesIO(img_data))
+            
+            # Load models
+            image_model, video_model, image_class_names, video_class_names = load_models()
+            
+            if image_model is not None:
+                # Prediksi berdasarkan mode
+                if mode == 'kata':
+                    # Untuk kata, kita perlu buat sequence dari gambar
+                    # Simpan gambar ke session untuk diproses oleh video model
+                    st.session_state.camera_image = img
+                    st.session_state.camera_mode = 'kata'
+                    label = "Gunakan fitur video"
+                    confidence = 0
+                else:
+                    label, confidence, _ = predict_image(image_model, img, image_class_names)
+                    st.session_state.camera_result = label
+                    st.session_state.camera_confidence = confidence
+                    st.session_state.camera_mode = 'abjad'
+                
+                st.rerun()
+                
+        except Exception as e:
+            print(f"Error processing camera data: {e}")
+    
     main()
