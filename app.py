@@ -92,16 +92,35 @@ st.markdown("""
 @st.cache_resource
 def load_models():
     try:
-        model_path = "models"
-        image_model = tf.keras.models.load_model(f"{model_path}/image_model.h5")
-        video_model = tf.keras.models.load_model(f"{model_path}/video_model.h5")
-        
-        with open(f"{model_path}/image_class_names.pkl", "rb") as f:
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+        image_model = tf.keras.models.load_model(
+            os.path.join(BASE_DIR, "image_model.h5")
+        )
+
+        video_model = tf.keras.models.load_model(
+            os.path.join(BASE_DIR, "video_model.h5")
+        )
+
+        with open(
+            os.path.join(BASE_DIR, "image_class_names.pkl"),
+            "rb"
+        ) as f:
             image_class_names = pickle.load(f)
-        with open(f"{model_path}/video_class_names.pkl", "rb") as f:
+
+        with open(
+            os.path.join(BASE_DIR, "video_class_names.pkl"),
+            "rb"
+        ) as f:
             video_class_names = pickle.load(f)
-        
-        return image_model, video_model, image_class_names, video_class_names
+
+        return (
+            image_model,
+            video_model,
+            image_class_names,
+            video_class_names
+        )
+
     except Exception as e:
         st.error(f"❌ Gagal memuat model: {e}")
         return None, None, None, None
