@@ -1,7 +1,7 @@
 """
 ====================================================================
 APLIKASI KLASIFIKASI GESTUR TANGAN BISINDO
-Bahasa Isyarat Indonesia (BISINDO) - FINAL STABLE
+Bahasa Isyarat Indonesia (BISINDO) - WITH CAMERA SUPPORT
 ====================================================================
 """
 
@@ -14,6 +14,8 @@ import os
 from PIL import Image
 import tempfile
 import time
+import base64
+import io
 
 # ============================================
 # KONFIGURASI HALAMAN
@@ -70,6 +72,12 @@ st.markdown("""
         border-radius: 15px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 1rem;
+    }
+    .camera-preview {
+        border: 3px solid #667eea;
+        border-radius: 15px;
+        overflow: hidden;
+        background: #000;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -182,18 +190,92 @@ def predict_video(model, video_file, class_names):
     confidence = np.max(predictions[0]) * 100
     return class_names[pred_class], confidence, predictions[0]
 
-def predict_frame_gambar(model, frame, class_names):
-    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    img = Image.fromarray(frame_rgb)
-    img = img.resize((224, 224))
-    img_array = np.array(img, dtype=np.float32)
-    img_array = preprocess_input(img_array)
-    img_array = np.expand_dims(img_array, axis=0)
-    predictions = model.predict(img_array, verbose=0)
-    pred_class = np.argmax(predictions[0])
-    confidence = np.max(predictions[0]) * 100
-    return class_names[pred_class], confidence, predictions[0]
+# ============================================
+# FUNGSI CAMERA CAPTURE (JAVASCRIPT)
+# ============================================
+
+def camera_capture_html():
+    """HTML/JavaScript untuk capture dari kamera browser"""
+    return """
+    <div style="text-align: center; margin: 10px 0;">
+        <div class="camera-preview">
+            <video id="video" width="100%" height="auto" autoplay style="max-height: 400px;"></video>
+        </div>
+        <br>
+        <button id="capture" style="background: #667eea; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
+            📸 Capture & Predict
+        </button>
+        <button id="capture_kata" style="background: #4facfe; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold; margin-left: 10px;">
+            🎬 Capture Kata
+        </button>
+        <canvas id="canvas" style="display: none;"></canvas>
+        <br><br>
+        <div id="result" style="font-size: 18px; font-weight: bold; color: #333; min-height: 50px;"></div>
+    </div>
+    
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('capture');
+        const captureKataBtn = document.getElementById('capture_kata');
+        const resultDiv = document.getElementById('result');
+        
+        // Inisialisasi kamera
+        let stream = null;
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
+            .then(mediaStream => {
+                stream = mediaStream;
+                video.srcObject = mediaStream;
+                resultDiv.innerHTML = '🟢 Camera ready!';
+                resultDiv.style.color = 'green';
+            })
+            .catch(err => {
+                resultDiv.innerHTML = '❌ Gagal mengakses kamera: ' + err.message;
+                resultDiv.style.color = 'red';
+            });
+        
+        // Fungsi capture
+        function captureImage(mode) {
+            if (!stream) {
+                resultDiv.innerHTML = '❌ Kamera belum siap!';
+                resultDiv.style.color = 'red';
+                return;
+            }
+            
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Kirim ke Streamlit
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            const data = {
+                type: 'camera_image',
+                mode: mode,
+                image: imageData
+            };
+            
+            resultDiv.innerHTML = '⏳ Memproses...';
+            resultDiv.style.color = '#667eea';
+            
+            // Kirim data ke Streamlit
+            window.parent.postMessage(data, '*');
+        }
+        
+        captureBtn.addEventListener('click', function() {
+            captureImage('abjad');
+        });
+        
+        captureKataBtn.addEventListener('click', function() {
+            captureImage('kata');
+        });
+        
+        // Kirim notifikasi ke Streamlit bahwa JavaScript siap
+        window.onload = function() {
+            window.parent.postMessage({ type: 'camera_ready' }, '*');
+        };
+    </script>
+    """
 
 # ============================================
 # MAIN
@@ -206,8 +288,25 @@ def main():
         st.error("❌ Gagal load model!")
         return
     
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📸 Gambar", "🎬 Video", "📷 Kamera Abjad", "📷 Kamera Kata"
+    # Sidebar
+    with st.sidebar:
+        st.markdown("""
+        ### 📋 Informasi
+        
+        **Fitur:**
+        - 📸 Gambar (Abjad A-Z)
+        - 🎬 Video (Kata BISINDO)
+        - 📷 Kamera (Abjad & Kata)
+        
+        **Dataset:**
+        - Abjad: 26 huruf
+        - Kata: 24 kata
+        """)
+        st.divider()
+        st.caption("© 2024 BISINDO Classification")
+    
+    tab1, tab2, tab3 = st.tabs([
+        "📸 Gambar", "🎬 Video", "📷 Kamera"
     ])
     
     # ==================== TAB 1: GAMBAR ====================
@@ -244,176 +343,81 @@ def main():
                 else:
                     st.error("Gagal memproses video!")
     
-    # ==================== TAB 3: KAMERA ABJAD ====================
+    # ==================== TAB 3: KAMERA ====================
     with tab3:
-        st.markdown("### 📷 Kamera Abjad")
+        st.markdown("""
+        <div class="card">
+            <h3>📷 Kamera BISINDO</h3>
+            <p>Ambil gambar dari kamera untuk mendeteksi gestur</p>
+            <p style="color: red; font-size: 0.9rem;">⚠️ Izinkan akses kamera saat diminta browser</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        image_display = st.empty()
-        result_display = st.empty()
+        col_cam, col_result = st.columns([2, 1])
         
-        col_start, col_stop = st.columns(2)
-        with col_start:
-            start = st.button("▶️ Start", type="primary", use_container_width=True)
-        with col_stop:
-            stop = st.button("⏹️ Stop", use_container_width=True)
+        with col_cam:
+            # HTML Kamera
+            st.components.v1.html(camera_capture_html(), height=550)
+            
+            # Hidden component untuk menerima data dari JavaScript
+            camera_data = st.session_state.get('camera_data', None)
         
-        if 'cam_abjad' not in st.session_state:
-            st.session_state.cam_abjad = False
-            st.session_state.cam_result = "Menunggu..."
-            st.session_state.cam_conf = 0
-        
-        if start:
-            st.session_state.cam_abjad = True
-        
-        if stop:
-            st.session_state.cam_abjad = False
-            image_display.empty()
-            result_display.empty()
-            st.rerun()
-        
-        if st.session_state.cam_abjad:
-            try:
-                cap = cv2.VideoCapture(0)
-                if cap.isOpened():
-                    while st.session_state.cam_abjad:
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
+        with col_result:
+            st.markdown("### 🎯 Hasil Deteksi")
+            result_container = st.empty()
+            
+            # Upload alternatif jika JavaScript tidak berfungsi
+            st.markdown("---")
+            st.markdown("### 📤 Alternatif: Upload Hasil Capture")
+            
+            captured_file = st.file_uploader(
+                "Upload gambar hasil capture...",
+                type=["jpg", "jpeg", "png"],
+                key="captured_image"
+            )
+            
+            if captured_file is not None:
+                image = Image.open(captured_file)
+                st.image(image, caption="📷 Gambar dari kamera", use_container_width=True)
+                
+                # Pilih mode
+                mode = st.radio("Pilih mode:", ["Abjad", "Kata"], horizontal=True)
+                
+                if st.button("🔍 Prediksi Hasil Kamera", type="primary", use_container_width=True):
+                    with st.spinner("⏳ Memproses prediksi..."):
+                        if mode == "Abjad":
+                            label, conf, all_probs = predict_image(
+                                image_model, image, image_class_names
+                            )
+                            class_names = image_class_names
+                        else:
+                            # Untuk kata, kita butuh video. Tapi kita bisa menggunakan gambar sebagai sequence
+                            st.warning("⚠️ Mode Kata membutuhkan video. Gunakan fitur Capture Kata di atas.")
+                            label = "Gunakan Capture Kata"
+                            conf = 0
+                            all_probs = None
                         
-                        label, conf, _ = predict_frame_gambar(image_model, frame, image_class_names)
-                        st.session_state.cam_result = label
-                        st.session_state.cam_conf = conf
-                        
-                        cv2.putText(frame, f"{label} ({conf:.1f}%)", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                        
-                        try:
-                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            image_display.image(frame_rgb, channels="RGB", use_container_width=True)
-                        except:
-                            pass
-                        
-                        try:
-                            result_display.markdown(f"""
-                            <div class="result-box">
+                        if all_probs is not None:
+                            result_container.markdown(f"""
+                            <div class="result-box fade-in">
                                 <h2>🎯 {label}</h2>
-                                <p>Confidence: {conf:.1f}%</p>
+                                <p class="confidence">Confidence: {conf:.2f}%</p>
                             </div>
                             """, unsafe_allow_html=True)
-                        except:
-                            pass
-                        
-                        time.sleep(0.05)
-                    
-                    cap.release()
-                    st.session_state.cam_abjad = False
-                else:
-                    st.error("❌ Kamera tidak tersedia!")
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
-                st.session_state.cam_abjad = False
-    
-    # ==================== TAB 4: KAMERA KATA ====================
-    with tab4:
-        st.markdown("### 📷 Kamera Kata")
-        
-        image_display_kata = st.empty()
-        result_display_kata = st.empty()
-        
-        col_start_k, col_stop_k = st.columns(2)
-        with col_start_k:
-            start_k = st.button("▶️ Start", type="primary", use_container_width=True, key="start_kata")
-        with col_stop_k:
-            stop_k = st.button("⏹️ Stop", use_container_width=True, key="stop_kata")
-        
-        if 'cam_kata' not in st.session_state:
-            st.session_state.cam_kata = False
-            st.session_state.cam_kata_result = "Mengisi buffer..."
-            st.session_state.cam_kata_conf = 0
-            st.session_state.buffer_kata = []
-        
-        if start_k:
-            st.session_state.cam_kata = True
-            st.session_state.buffer_kata = []
-        
-        if stop_k:
-            st.session_state.cam_kata = False
-            st.session_state.buffer_kata = []
-            image_display_kata.empty()
-            result_display_kata.empty()
-            st.rerun()
-        
-        if st.session_state.cam_kata:
-            try:
-                cap = cv2.VideoCapture(0)
-                if cap.isOpened():
-                    while st.session_state.cam_kata:
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-                        
-                        # Proses buffer
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        frame_resized = cv2.resize(frame_rgb, (96, 96))
-                        frame_norm = frame_resized.astype(np.float32) / 255.0
-                        st.session_state.buffer_kata.append(frame_norm)
-                        
-                        if len(st.session_state.buffer_kata) > 20:
-                            st.session_state.buffer_kata = st.session_state.buffer_kata[-20:]
-                        
-                        label = "Mengisi buffer..."
-                        conf = 0
-                        if len(st.session_state.buffer_kata) >= 20:
-                            frames = np.array(st.session_state.buffer_kata[-20:])
-                            frames = np.expand_dims(frames, axis=0)
-                            predictions = video_model.predict(frames, verbose=0)
-                            pred_class = np.argmax(predictions[0])
-                            conf = np.max(predictions[0]) * 100
-                            label = video_class_names[pred_class]
-                            st.session_state.cam_kata_result = label
-                            st.session_state.cam_kata_conf = conf
-                        else:
-                            st.session_state.cam_kata_result = f"Mengisi buffer... ({len(st.session_state.buffer_kata)}/20)"
-                            st.session_state.cam_kata_conf = 0
-                        
-                        cv2.putText(frame, f"{label} ({conf:.1f}%)", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                        cv2.putText(frame, f"Buffer: {len(st.session_state.buffer_kata)}/20", (10, 60), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-                        
-                        try:
-                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            image_display_kata.image(frame_rgb, channels="RGB", use_container_width=True)
-                        except:
-                            pass
-                        
-                        try:
-                            if conf > 0:
-                                result_display_kata.markdown(f"""
-                                <div class="result-box-video">
-                                    <h2>🎯 {label}</h2>
-                                    <p>Confidence: {conf:.1f}%</p>
-                                    <p>Buffer: {len(st.session_state.buffer_kata)}/20 ✅</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            else:
-                                result_display_kata.markdown(f"""
-                                <div style="background:#6c757d; padding:1.5rem; border-radius:15px; color:white; text-align:center;">
-                                    <h2>⏳ {label}</h2>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        except:
-                            pass
-                        
-                        time.sleep(0.05)
-                    
-                    cap.release()
-                    st.session_state.cam_kata = False
-                else:
-                    st.error("❌ Kamera tidak tersedia!")
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
-                st.session_state.cam_kata = False
+                            
+                            st.subheader("📊 Top 5 Prediksi")
+                            top_indices = np.argsort(all_probs)[-5:][::-1]
+                            for idx in top_indices:
+                                prob = float(all_probs[idx] * 100)
+                                col_progress, col_label = st.columns([3, 1])
+                                with col_progress:
+                                    st.progress(prob / 100)
+                                with col_label:
+                                    st.write(f"{class_names[idx]} {prob:.1f}%")
+
+# ============================================
+# RUN APP
+# ============================================
 
 if __name__ == "__main__":
     main()
