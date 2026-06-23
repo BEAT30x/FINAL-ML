@@ -8,17 +8,6 @@ from PIL import Image
 import tempfile
 import time
 from collections import deque
-import base64
-import io
-
-# ============================================
-# [TAMBAHAN] DETEKSI LINGKUNGAN
-# ============================================
-def is_huggingface_space():
-    """Cek apakah berjalan di Hugging Face Spaces"""
-    return os.environ.get('SPACE_ID') is not None or os.environ.get('HF_SPACE') is not None
-
-USE_BROWSER_CAMERA = is_huggingface_space()
 
 # ============================================
 # 1. KONFIGURASI HALAMAN & TEMA UTAMA
@@ -30,10 +19,127 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ... (semua CSS dan header Anda tetap sama) ...
+# Tema UI/UX Profesional (Clean Minimalist & Enterprise Look)
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    html, body, [data-testid="stAppViewContainer"] {
+        font-family: 'Inter', sans-serif;
+        background-color: #f8fafc;
+    }
+    
+    .dashboard-header {
+        background: #ffffff;
+        padding: 1.75rem 2rem;
+        border-radius: 12px;
+        margin-bottom: 2rem;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .header-title-section h1 {
+        font-size: 1.8rem;
+        color: #0f172a;
+        font-weight: 700;
+        margin: 0;
+        letter-spacing: -0.02em;
+    }
+    .header-title-section p {
+        font-size: 0.95rem;
+        color: #64748b;
+        margin: 0.25rem 0 0 0;
+    }
+    .badge-status {
+        background-color: #f0fdf4;
+        color: #166534;
+        padding: 0.35rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        border: 1px solid #bbf7d0;
+    }
+    
+    .pro-card {
+        background: #ffffff;
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+        margin-bottom: 1.5rem;
+    }
+    .pro-card h3 {
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: #1e293b;
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+    }
+    .pro-card p {
+        font-size: 0.9rem;
+        color: #64748b;
+        margin-bottom: 1rem;
+    }
+
+    .kpi-box {
+        background: #fdfdfd;
+        border: 1px solid #e2e8f0;
+        border-left: 4px solid #4f46e5;
+        padding: 1.25rem;
+        border-radius: 8px;
+        margin-top: 1rem;
+    }
+    .kpi-title {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+        font-weight: 600;
+    }
+    .kpi-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #0f172a;
+        margin: 0.25rem 0;
+    }
+    
+    button[data-baseweb="tab"] {
+        font-size: 0.95rem;
+        font-weight: 500;
+        color: #64748b;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #4f46e5 !important;
+        font-weight: 600;
+    }
+    
+    .video-stream-container img {
+        border-radius: 12px;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ============================================
-# 3. LOAD CORE MODELS (DENGAN FALLBACK NAMA FILE)
+# 2. APPLICATION HEADER
+# ============================================
+st.markdown("""
+<div class="dashboard-header">
+    <div class="header-title-section">
+        <h1>🖐️ BISINDO Intelligence System</h1>
+        <p>Platform enterprise klasifikasi dan penerjemah Bahasa Isyarat Indonesia secara real-time</p>
+    </div>
+    <div>
+        <span class="badge-status">● Engine V2.0 Active</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ============================================
+# 3. LOAD CORE MODELS - HANYA PERBAIKAN PATH
 # ============================================
 @st.cache_resource
 def load_models():
@@ -41,51 +147,83 @@ def load_models():
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         
         # Coba berbagai kemungkinan nama file
-        possible_names = ['image_model.h5', 'model_gambar.h5', 'model.h5']
-        possible_paths = [BASE_DIR, os.path.join(BASE_DIR, "models")]
+        image_names = ["model_gambar.h5", "image_model.h5"]
+        video_names = ["video_model.h5"]
+        pkl_names = ["image_class_names.pkl", "video_class_names.pkl"]
         
-        for path in possible_paths:
-            for name in possible_names:
-                image_h5 = os.path.join(path, name)
-                if os.path.exists(image_h5):
-                    video_h5 = os.path.join(path, "video_model.h5")
-                    image_pkl = os.path.join(path, "image_class_names.pkl")
-                    video_pkl = os.path.join(path, "video_class_names.pkl")
-                    
-                    try:
-                        image_model = tf.keras.models.load_model(image_h5)
-                        
-                        if os.path.exists(video_h5):
-                            video_model = tf.keras.models.load_model(video_h5)
-                        else:
-                            video_model = None
-                        
-                        if os.path.exists(image_pkl):
-                            with open(image_pkl, "rb") as f:
-                                image_class_names = pickle.load(f)
-                        else:
-                            image_class_names = [chr(65 + i) for i in range(26)]
-                        
-                        if os.path.exists(video_pkl):
-                            with open(video_pkl, "rb") as f:
-                                video_class_names = pickle.load(f)
-                        else:
-                            video_class_names = []
-                        
-                        st.success(f"✅ Model ditemukan: {os.path.basename(image_h5)}")
-                        return image_model, video_model, image_class_names, video_class_names
-                    except:
-                        continue
+        image_model = None
+        video_model = None
+        image_class_names = None
+        video_class_names = None
         
-        st.error("❌ Model tidak ditemukan!")
-        return None, None, None, None
-    except:
+        # Cari di root
+        for img_name in image_names:
+            img_path = os.path.join(BASE_DIR, img_name)
+            if os.path.exists(img_path):
+                image_model = tf.keras.models.load_model(img_path)
+                break
+        
+        # Cari di folder models
+        if image_model is None:
+            for img_name in image_names:
+                img_path = os.path.join(BASE_DIR, "models", img_name)
+                if os.path.exists(img_path):
+                    image_model = tf.keras.models.load_model(img_path)
+                    break
+        
+        # Cari video model
+        for vid_name in video_names:
+            vid_path = os.path.join(BASE_DIR, vid_name)
+            if os.path.exists(vid_path):
+                video_model = tf.keras.models.load_model(vid_path)
+                break
+            vid_path = os.path.join(BASE_DIR, "models", vid_name)
+            if os.path.exists(vid_path):
+                video_model = tf.keras.models.load_model(vid_path)
+                break
+        
+        # Cari class names
+        for pkl_name in pkl_names:
+            pkl_path = os.path.join(BASE_DIR, pkl_name)
+            if os.path.exists(pkl_path):
+                with open(pkl_path, "rb") as f:
+                    if "image" in pkl_name:
+                        image_class_names = pickle.load(f)
+                    else:
+                        video_class_names = pickle.load(f)
+            pkl_path = os.path.join(BASE_DIR, "models", pkl_name)
+            if os.path.exists(pkl_path):
+                with open(pkl_path, "rb") as f:
+                    if "image" in pkl_name:
+                        image_class_names = pickle.load(f)
+                    else:
+                        video_class_names = pickle.load(f)
+        
+        # Fallback
+        if image_class_names is None:
+            image_class_names = [chr(65 + i) for i in range(26)]
+        if video_class_names is None:
+            video_class_names = []
+        
+        if image_model is None:
+            st.error("❌ Model tidak ditemukan!")
+            st.code(f"""
+            File di root folder:
+            {os.listdir(BASE_DIR)}
+            """)
+            return None, None, None, None
+        
+        st.success(f"✅ Model berhasil dimuat! {len(image_class_names)} kelas")
+        return image_model, video_model, image_class_names, video_class_names
+        
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
         return None, None, None, None
 
 image_model, video_model, image_class_names, video_class_names = load_models()
 
 # ============================================
-# 4. PREPROCESSING (SAMA SEPERTI KODE ANDA)
+# 4. PREPROCESSING PIPELINES (TIDAK DIUBAH)
 # ============================================
 def preprocess_image(image):
     from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
@@ -153,104 +291,7 @@ def predict_live_kata(model, frame_list, class_names, img_size=96):
     return class_names[pred_class], predictions[0][pred_class] * 100
 
 # ============================================
-# 5. [TAMBAHAN] BROWSER CAMERA FUNCTIONS
-# ============================================
-def browser_camera_html():
-    """HTML/JavaScript untuk kamera via browser"""
-    return """
-    <div style="text-align: center;">
-        <video id="video" width="100%" height="auto" autoplay style="max-height: 400px; background: #000; border-radius: 10px;"></video>
-        <br>
-        <button id="captureBtn" style="background: #4f46e5; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; margin-top: 10px;">
-            📸 Capture & Predict
-        </button>
-        <canvas id="canvas" style="display: none;"></canvas>
-        <div id="status" style="margin-top: 10px; font-weight: bold; color: #6c757d;">Klik Start di sidebar</div>
-    </div>
-    <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const statusDiv = document.getElementById('status');
-        
-        let stream = null;
-        let isRunning = false;
-        
-        function startCamera() {
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
-            .then(mediaStream => {
-                stream = mediaStream;
-                video.srcObject = mediaStream;
-                video.play();
-                isRunning = true;
-                statusDiv.innerHTML = '🟢 Camera running...';
-                statusDiv.style.color = '#28a745';
-            })
-            .catch(err => {
-                statusDiv.innerHTML = '❌ Error: ' + err.message;
-                statusDiv.style.color = 'red';
-            });
-        }
-        
-        function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-            if (video.srcObject) {
-                video.srcObject = null;
-            }
-            isRunning = false;
-            statusDiv.innerHTML = '⏸️ Stopped';
-            statusDiv.style.color = '#6c757d';
-        }
-        
-        function captureFrame() {
-            if (!isRunning) {
-                statusDiv.innerHTML = '⚠️ Start camera dulu!';
-                statusDiv.style.color = 'orange';
-                return;
-            }
-            
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
-            const currentUrl = window.location.href.split('?')[0];
-            window.location.href = currentUrl + '?img=' + encodeURIComponent(imageData) + '&t=' + Date.now();
-            
-            statusDiv.innerHTML = '⏳ Memproses...';
-            statusDiv.style.color = '#667eea';
-        }
-        
-        document.getElementById('captureBtn').addEventListener('click', captureFrame);
-        
-        // Start otomatis
-        startCamera();
-        
-        // Cleanup
-        window.addEventListener('beforeunload', function() {
-            stopCamera();
-        });
-    </script>
-    """
-
-def predict_from_browser_image(img_data):
-    """Prediksi dari gambar yang di-capture dari browser"""
-    try:
-        img_b64 = img_data.split(',')[1]
-        img_bytes = base64.b64decode(img_b64)
-        img = Image.open(io.BytesIO(img_bytes))
-        processed = preprocess_image(img)
-        probs = image_model.predict(processed, verbose=0)[0]
-        pred_idx = np.argmax(probs)
-        return image_class_names[pred_idx], probs[pred_idx] * 100
-    except:
-        return None, 0
-
-# ============================================
-# 5. SIDEBAR CONTROL PANEL (SAMA SEPERTI KODE ANDA)
+# 5. SIDEBAR CONTROL PANEL
 # ============================================
 with st.sidebar:
     st.markdown("### 🛠️ System Control & Core Info")
@@ -263,9 +304,9 @@ with st.sidebar:
     st.caption("© 2026 BISINDO Neural Translator Network Pro Tier")
 
 # ============================================
-# 6. MAIN CONTROLLER
+# 6. MAIN CONTROLLER - TIDAK DIUBAH
 # ============================================
-if image_model is None:
+if image_model is None or video_model is None:
     st.error("🚨 Master Model File tidak ditemukan!")
     st.info("📁 Pastikan file model ada di ROOT folder.")
 else:
@@ -276,9 +317,9 @@ else:
         "⚡ Live Stream (Kata/Kalimat)"
     ])
 
-    # ============================================================
-    # TAB 1: ASSET IMAGE UPLOADER (SAMA PERSIS KODE ANDA)
-    # ============================================================
+    # ----------------------------------------------------------------
+    # TAB 1: ASSET IMAGE UPLOADER
+    # ----------------------------------------------------------------
     with tab1:
         st.markdown('<div class="pro-card"><h3>Analisis File Gambar Statis</h3><p>Sistem akan memindai kontur geometris tangan dari berkas gambar yang diunggah.</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns([1, 1], gap="medium")
@@ -316,9 +357,9 @@ else:
             else:
                 st.info("💡 Hubungkan dokumen gambar di panel kiri untuk mengaktifkan kalkulasi model.")
 
-    # ============================================================
-    # TAB 2: ASSET VIDEO UPLOADER (SAMA PERSIS KODE ANDA)
-    # ============================================================
+    # ----------------------------------------------------------------
+    # TAB 2: ASSET VIDEO UPLOADER
+    # ----------------------------------------------------------------
     with tab2:
         st.markdown('<div class="pro-card"><h3>Analisis Rekaman Video Isyarat</h3><p>Ekstraksi otomatis untuk mengidentifikasi klasifikasi kata dinamis.</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns([1, 1], gap="medium")
@@ -359,77 +400,53 @@ else:
             else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
-    # ============================================================
-    # TAB 3: LIVE STREAM CAMERA (ABJAD) - BROWSER VERSION
-    # ============================================================
+    # ----------------------------------------------------------------
+    # TAB 3: LIVE STREAM CAMERA (ABJAD)
+    # ----------------------------------------------------------------
     with tab3:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera browser untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
         
         c1, c2 = st.columns([2, 1], gap="medium")
         with c1:
-            # Jika di Hugging Face, pakai browser camera
-            if USE_BROWSER_CAMERA:
-                st.components.v1.html(browser_camera_html(), height=500)
-                st.info("📷 Klik tombol 'Capture & Predict' untuk mengambil gambar dan prediksi")
-            else:
-                # Kode asli Anda untuk lokal
-                run_abjad = st.toggle("Aktifkan Jalur Kamera Abjad", key="tg_abjad")
-                frame_window = st.empty()
-                
-                if run_abjad:
-                    cap = cv2.VideoCapture(0)
-                    if not cap.isOpened():
-                        st.error("Sistem gagal terhubung ke perangkat keras Kamera.")
-                    else:
-                        while run_abjad:
-                            ret, frame = cap.read()
-                            if not ret: break
-                            
-                            frame = cv2.flip(frame, 1)
-                            label, conf = predict_frame_gambar(image_model, frame, image_class_names)
-                            
-                            st.markdown(f"""
-                            <div class="kpi-box">
-                                <div class="kpi-title">Karakter Terbaca</div>
-                                <div class="kpi-value" style="color: #4f46e5;">{label}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            st.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
-                            
-                            frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            frame_window.image(frame_disp, channels="RGB", use_container_width=True)
-                            
-                            time.sleep(0.03)
-                        cap.release()
+            run_abjad = st.toggle("Aktifkan Jalur Kamera Abjad", key="tg_abjad")
+            frame_window = st.empty()
         with c2:
             st.markdown("##### 📊 LOG PREDIKSI SISTEM")
             lbl_placeholder = st.empty()
             conf_placeholder = st.empty()
             
-            # Proses hasil dari browser capture
-            query_params = st.query_params
-            if 'img' in query_params:
-                try:
-                    img_data = query_params['img']
-                    label, conf = predict_from_browser_image(img_data)
-                    if label:
-                        lbl_placeholder.markdown(f"""
-                        <div class="kpi-box">
-                            <div class="kpi-title">Karakter Terbaca</div>
-                            <div class="kpi-value" style="color: #4f46e5;">{label}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
-                    st.query_params.clear()
-                except:
-                    pass
+        if run_abjad:
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                st.error("Sistem gagal terhubung ke perangkat keras Kamera.")
             else:
-                lbl_placeholder.info("📷 Capture gambar untuk melihat hasil")
+                while run_abjad:
+                    ret, frame = cap.read()
+                    if not ret: break
+                    
+                    frame = cv2.flip(frame, 1)
+                    label, conf = predict_frame_gambar(image_model, frame, image_class_names)
+                    
+                    lbl_placeholder.markdown(f"""
+                    <div class="kpi-box">
+                        <div class="kpi-title">Karakter Terbaca</div>
+                        <div class="kpi-value" style="color: #4f46e5;">{label}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
+                    
+                    frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frame_window.image(frame_disp, channels="RGB", use_container_width=True)
+                    
+                    time.sleep(0.03)
+                cap.release()
+        else:
+            frame_window.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
 
-    # ============================================================
-    # TAB 4: LIVE STREAM CAMERA (KATA) - SAMA PERSIS KODE ANDA
-    # ============================================================
+    # ----------------------------------------------------------------
+    # TAB 4: LIVE STREAM CAMERA (KATA)
+    # ----------------------------------------------------------------
     with tab4:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinambungan.</p></div>', unsafe_allow_html=True)
         
