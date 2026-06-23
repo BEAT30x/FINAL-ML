@@ -139,22 +139,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# 3. LOAD CORE MODELS
+# 3. LOAD CORE MODELS (DIPERBAIKI - PATH DI ROOT)
 # ============================================
 @st.cache_resource
 def load_models():
     try:
-        model_path = "models"
-        image_model = tf.keras.models.load_model(f"{model_path}/image_model.h5")
-        video_model = tf.keras.models.load_model(f"{model_path}/video_model.h5")
+        # ==========================================
+        # PERBAIKAN: Model ada di ROOT folder, bukan di models/
+        # ==========================================
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         
-        with open(f"{model_path}/image_class_names.pkl", "rb") as f:
+        # Coba dari ROOT dulu
+        image_model_path = os.path.join(BASE_DIR, "image_model.h5")
+        video_model_path = os.path.join(BASE_DIR, "video_model.h5")
+        image_pkl_path = os.path.join(BASE_DIR, "image_class_names.pkl")
+        video_pkl_path = os.path.join(BASE_DIR, "video_class_names.pkl")
+        
+        # Jika tidak ada di ROOT, coba di folder models/
+        if not os.path.exists(image_model_path):
+            image_model_path = os.path.join(BASE_DIR, "models", "image_model.h5")
+            video_model_path = os.path.join(BASE_DIR, "models", "video_model.h5")
+            image_pkl_path = os.path.join(BASE_DIR, "models", "image_class_names.pkl")
+            video_pkl_path = os.path.join(BASE_DIR, "models", "video_class_names.pkl")
+        
+        # Load model
+        image_model = tf.keras.models.load_model(image_model_path)
+        video_model = tf.keras.models.load_model(video_model_path)
+        
+        with open(image_pkl_path, "rb") as f:
             image_class_names = pickle.load(f)
-        with open(f"{model_path}/video_class_names.pkl", "rb") as f:
+        with open(video_pkl_path, "rb") as f:
             video_class_names = pickle.load(f)
         
         return image_model, video_model, image_class_names, video_class_names
     except Exception as e:
+        st.error(f"❌ Gagal memuat model: {e}")
         return None, None, None, None
 
 image_model, video_model, image_class_names, video_class_names = load_models()
@@ -244,7 +263,21 @@ with st.sidebar:
 # 6. MAIN CONTROLLER
 # ============================================
 if image_model is None or video_model is None:
-    st.error("🚨 Master Model File (`.h5` / `.pkl`) tidak ditemukan di folder `models/`.")
+    st.error("🚨 Master Model File (`.h5` / `.pkl`) tidak ditemukan!")
+    st.info("📁 Pastikan file model ada di ROOT folder atau folder `models/`:")
+    st.code("""
+    📁 BISINDO_Deployment/
+    ├── app.py
+    ├── image_model.h5       ← Harus ada!
+    ├── video_model.h5       ← Harus ada!
+    ├── image_class_names.pkl
+    ├── video_class_names.pkl
+    └── models/              (opsional)
+        ├── image_model.h5
+        ├── video_model.h5
+        ├── image_class_names.pkl
+        └── video_class_names.pkl
+    """)
 else:
     tab1, tab2, tab3, tab4 = st.tabs([
         "📂 Unggah Citra (Abjad)",
