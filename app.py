@@ -1,7 +1,8 @@
 """
 ====================================================================
 APLIKASI KLASIFIKASI GESTUR TANGAN BISINDO
-Bahasa Isyarat Indonesia (BISINDO) - REAL-TIME PREDIKSI LANGSUNG
+Bahasa Isyarat Indonesia (BISINDO) - REAL-TIME OTOMATIS
+Hasil langsung muncul saat gestur ditampilkan di depan kamera
 ====================================================================
 """
 
@@ -57,7 +58,7 @@ st.markdown("""
         color: white;
         text-align: center;
         margin-top: 1rem;
-        animation: fadeIn 0.3s ease-in-out;
+        animation: fadeIn 0.2s ease-in-out;
     }
     .result-box-video {
         background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
@@ -66,7 +67,7 @@ st.markdown("""
         color: white;
         text-align: center;
         margin-top: 1rem;
-        animation: fadeIn 0.3s ease-in-out;
+        animation: fadeIn 0.2s ease-in-out;
     }
     .card {
         background: white;
@@ -75,7 +76,7 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 1rem;
     }
-    .camera-preview {
+    .camera-container {
         border: 3px solid #667eea;
         border-radius: 15px;
         overflow: hidden;
@@ -84,14 +85,30 @@ st.markdown("""
     }
     .overlay-label {
         position: absolute;
-        bottom: 10px;
-        left: 10px;
-        background: rgba(0,0,0,0.7);
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.8);
         color: #0f0;
-        padding: 5px 15px;
-        border-radius: 20px;
-        font-size: 14px;
+        padding: 8px 25px;
+        border-radius: 25px;
+        font-size: 18px;
         font-weight: bold;
+        z-index: 10;
+        white-space: nowrap;
+        border: 2px solid rgba(0,255,0,0.3);
+    }
+    .overlay-confidence {
+        position: absolute;
+        bottom: 70px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.6);
+        color: #fff;
+        padding: 4px 15px;
+        border-radius: 15px;
+        font-size: 13px;
+        z-index: 10;
     }
     .status-active {
         color: #28a745;
@@ -101,19 +118,32 @@ st.markdown("""
         from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
-    .live-badge {
-        display: inline-block;
-        background: #ff0000;
-        color: white;
-        padding: 2px 10px;
-        border-radius: 10px;
-        font-size: 12px;
-        animation: blink 1s infinite;
-    }
-    @keyframes blink {
+    @keyframes pulse {
         0% { opacity: 1; }
-        50% { opacity: 0.3; }
+        50% { opacity: 0.5; }
         100% { opacity: 1; }
+    }
+    .live-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        background: #ff0000;
+        border-radius: 50%;
+        animation: pulse 1s infinite;
+        margin-right: 5px;
+    }
+    .confidence-bar-container {
+        width: 100%;
+        height: 6px;
+        background: #e9ecef;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 5px;
+    }
+    .confidence-bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.2s ease;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -173,17 +203,6 @@ def load_models():
 # FUNGSI PREDIKSI
 # ============================================
 
-def predict_image(model, image, class_names):
-    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-    image = image.resize((224, 224))
-    img_array = np.array(image, dtype=np.float32)
-    img_array = preprocess_input(img_array)
-    img_array = np.expand_dims(img_array, axis=0)
-    predictions = model.predict(img_array, verbose=0)
-    pred_class = np.argmax(predictions[0])
-    confidence = np.max(predictions[0]) * 100
-    return class_names[pred_class], confidence, predictions[0]
-
 def predict_image_from_array(image_array, model, class_names):
     from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
     img = Image.fromarray(image_array)
@@ -196,169 +215,123 @@ def predict_image_from_array(image_array, model, class_names):
     confidence = np.max(predictions[0]) * 100
     return class_names[pred_class], confidence, predictions[0]
 
-def predict_video(model, video_file, class_names):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
-        tmp_file.write(video_file.read())
-        tmp_path = tmp_file.name
-    
-    cap = cv2.VideoCapture(tmp_path)
-    frames = []
-    
-    if not cap.isOpened():
-        os.remove(tmp_path)
-        return None, 0, None
-    
-    all_frames = []
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        all_frames.append(frame)
-    cap.release()
-    os.remove(tmp_path)
-    
-    total_frames = len(all_frames)
-    if total_frames == 0:
-        return None, 0, None
-    
-    indices = np.linspace(0, total_frames-1, 20, dtype=int)
-    for idx in indices:
-        if idx < total_frames:
-            frame = all_frames[idx]
-            frame = cv2.resize(frame, (96, 96))
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frames.append(frame.astype(np.float32) / 255.0)
-        else:
-            frames.append(np.zeros((96, 96, 3), dtype=np.float32))
-    
-    video_array = np.array(frames, dtype=np.float32)
-    video_array = np.expand_dims(video_array, axis=0)
-    predictions = model.predict(video_array, verbose=0)
-    pred_class = np.argmax(predictions[0])
-    confidence = np.max(predictions[0]) * 100
-    return class_names[pred_class], confidence, predictions[0]
-
 # ============================================
-# REAL-TIME CAMERA HTML (DENGAN RESULT DISPLAY)
+# HTML REAL-TIME OTOMATIS
 # ============================================
 
-def realtime_camera_html():
-    """HTML/JavaScript untuk real-time camera dengan display hasil langsung"""
+def realtime_auto_html():
+    """HTML/JavaScript - Real-time otomatis, hasil langsung muncul"""
     return """
     <div style="text-align: center; margin: 10px 0;">
-        <div class="camera-preview" style="position: relative;">
-            <video id="video" width="100%" height="auto" autoplay style="max-height: 400px; background: #000;"></video>
-            <div id="overlayLabel" class="overlay-label">⏳ Menunggu...</div>
+        <div class="camera-container">
+            <video id="video" width="100%" height="auto" autoplay style="max-height: 450px; background: #000;"></video>
+            <div id="overlayLabel" class="overlay-label">🔄 Menunggu gestur...</div>
+            <div id="overlayConfidence" class="overlay-confidence">Confidence: 0%</div>
         </div>
-        <br>
-        <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
-            <button id="startBtn" style="background: #28a745; color: white; padding: 10px 25px; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: bold;">
-                ▶️ Start
+        
+        <div style="display: flex; justify-content: center; gap: 10px; margin: 15px 0; flex-wrap: wrap;">
+            <button id="startBtn" style="background: #28a745; color: white; padding: 10px 30px; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; font-weight: bold;">
+                ▶️ Start Auto Detect
             </button>
-            <button id="stopBtn" style="background: #dc3545; color: white; padding: 10px 25px; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: bold;">
+            <button id="stopBtn" style="background: #dc3545; color: white; padding: 10px 30px; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; font-weight: bold;">
                 ⏹️ Stop
             </button>
-            <button id="captureBtn" style="background: #667eea; color: white; padding: 10px 25px; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: bold;">
-                📸 Capture
-            </button>
-            <button id="kataBtn" style="background: #4facfe; color: white; padding: 10px 25px; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: bold;">
-                🎬 Kata Mode
+            <button id="modeBtn" style="background: #667eea; color: white; padding: 10px 30px; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; font-weight: bold;">
+                🔄 Mode: Abjad
             </button>
         </div>
-        <br>
-        <div id="status" style="font-size: 14px; font-weight: bold; min-height: 25px; color: #6c757d;">⏸️ Click Start or press S</div>
-        <div id="resultDisplay" style="font-size: 24px; font-weight: bold; min-height: 50px; margin-top: 10px; padding: 10px; border-radius: 10px; background: #f8f9fa; border: 2px solid #ddd;">
-            <span style="color: #6c757d;">🎯 Hasil akan muncul di sini</span>
+        
+        <div id="status" style="font-size: 14px; font-weight: bold; min-height: 25px; color: #6c757d;">
+            ⏸️ Klik Start untuk deteksi otomatis
         </div>
-        <div id="confidenceBar" style="margin-top: 5px; width: 100%; height: 8px; background: #e9ecef; border-radius: 5px; overflow: hidden;">
-            <div id="confidenceFill" style="height: 100%; width: 0%; background: linear-gradient(90deg, #28a745, #007bff); border-radius: 5px; transition: width 0.3s;"></div>
+        
+        <div id="resultDisplay" style="font-size: 28px; font-weight: bold; min-height: 60px; padding: 15px; border-radius: 15px; background: #f8f9fa; border: 2px solid #ddd; margin-top: 10px;">
+            <span style="color: #6c757d;">🎯 Hasil deteksi akan muncul di sini</span>
         </div>
+        
+        <div class="confidence-bar-container">
+            <div id="confidenceFill" class="confidence-bar-fill" style="width: 0%; background: linear-gradient(90deg, #28a745, #00d4ff);"></div>
+        </div>
+        
         <canvas id="canvas" style="display: none;"></canvas>
-        <canvas id="canvasKata" style="display: none;"></canvas>
     </div>
     
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const canvasKata = document.getElementById('canvasKata');
         const ctx = canvas.getContext('2d');
-        const ctxKata = canvasKata.getContext('2d');
         const statusDiv = document.getElementById('status');
         const resultDisplay = document.getElementById('resultDisplay');
         const overlayLabel = document.getElementById('overlayLabel');
-        const confidenceBar = document.getElementById('confidenceFill');
+        const overlayConfidence = document.getElementById('overlayConfidence');
+        const confidenceFill = document.getElementById('confidenceFill');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const captureBtn = document.getElementById('captureBtn');
-        const kataBtn = document.getElementById('kataBtn');
+        const modeBtn = document.getElementById('modeBtn');
         
         let stream = null;
         let isRunning = false;
         let intervalId = null;
-        let currentMode = 'abjad';
-        let lastPrediction = 'Menunggu...';
+        let currentMode = 'abjad'; // 'abjad' atau 'kata'
+        let lastLabel = 'Menunggu...';
         let lastConfidence = 0;
+        let frameCount = 0;
         
-        // Update UI dengan hasil
+        // Update UI dengan hasil prediksi
         function updateResult(label, confidence) {
-            lastPrediction = label;
+            lastLabel = label;
             lastConfidence = confidence;
             
-            // Update display
+            // Update overlay
+            overlayLabel.textContent = `🎯 ${label}`;
+            overlayConfidence.textContent = `Confidence: ${confidence.toFixed(1)}%`;
+            
+            // Update result display
             resultDisplay.innerHTML = `<span style="color: #333;">🎯 <b>${label}</b></span>`;
-            overlayLabel.textContent = `${label} (${confidence.toFixed(1)}%)`;
             
             // Update confidence bar
-            confidenceBar.style.width = `${Math.min(confidence, 100)}%`;
+            confidenceFill.style.width = `${Math.min(confidence, 100)}%`;
             
             // Warna berdasarkan confidence
             if (confidence > 80) {
-                confidenceBar.style.background = 'linear-gradient(90deg, #28a745, #00d4ff)';
+                confidenceFill.style.background = 'linear-gradient(90deg, #28a745, #00d4ff)';
+                overlayLabel.style.color = '#0f0';
             } else if (confidence > 50) {
-                confidenceBar.style.background = 'linear-gradient(90deg, #ffc107, #ff9800)';
+                confidenceFill.style.background = 'linear-gradient(90deg, #ffc107, #ff9800)';
+                overlayLabel.style.color = '#ffc107';
             } else {
-                confidenceBar.style.background = 'linear-gradient(90deg, #dc3545, #ff6b6b)';
+                confidenceFill.style.background = 'linear-gradient(90deg, #dc3545, #ff6b6b)';
+                overlayLabel.style.color = '#ff6b6b';
             }
+            
+            // Status
+            statusDiv.textContent = `✅ Detected: ${label} (${confidence.toFixed(1)}%)`;
+            statusDiv.style.color = '#28a745';
         }
         
-        // Kirim ke Streamlit
-        function sendToStreamlit(imageData, mode) {
+        // Kirim frame ke Streamlit untuk prediksi
+        function sendFrameForPrediction() {
+            if (!isRunning) return;
+            
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const imageData = canvas.toDataURL('image/jpeg', 0.7);
             const data = {
                 type: 'camera_frame',
-                mode: mode,
+                mode: currentMode,
                 image: imageData
             };
+            
+            // Kirim ke Streamlit
             window.parent.postMessage(data, '*');
-            
-            // Update sementara
-            statusDiv.textContent = '⏳ Memproses...';
-            statusDiv.style.color = '#667eea';
-            resultDisplay.innerHTML = `<span style="color: #667eea;">⏳ Memproses...</span>`;
         }
         
-        // Capture frame
-        function captureFrame(mode) {
-            if (!isRunning) {
-                statusDiv.textContent = '⚠️ Start camera dulu!';
-                statusDiv.style.color = 'orange';
-                return;
-            }
-            
-            const targetCanvas = mode === 'kata' ? canvasKata : canvas;
-            const targetCtx = mode === 'kata' ? ctxKata : ctx;
-            
-            targetCanvas.width = video.videoWidth || 640;
-            targetCanvas.height = video.videoHeight || 480;
-            targetCtx.drawImage(video, 0, 0, targetCanvas.width, targetCanvas.height);
-            
-            const imageData = targetCanvas.toDataURL('image/jpeg', 0.8);
-            sendToStreamlit(imageData, mode);
-        }
-        
-        // Start camera dengan real-time
-        function startCamera() {
+        // Start auto detection
+        function startDetection() {
             if (isRunning) {
-                statusDiv.textContent = '⚠️ Camera sudah berjalan!';
+                statusDiv.textContent = '⚠️ Already running!';
                 statusDiv.style.color = 'orange';
                 return;
             }
@@ -371,46 +344,36 @@ def realtime_camera_html():
                 video.srcObject = mediaStream;
                 video.play();
                 isRunning = true;
-                statusDiv.textContent = '🟢 Running (Real-Time)';
-                statusDiv.style.color = '#28a745';
-                overlayLabel.textContent = '🟢 Active';
-                overlayLabel.style.color = '#0f0';
                 
-                // REAL-TIME: Prediksi setiap 300ms
+                statusDiv.textContent = '🟢 Auto-detection running...';
+                statusDiv.style.color = '#28a745';
+                overlayLabel.textContent = '🔄 Mendeteksi...';
+                overlayLabel.style.color = '#0f0';
+                resultDisplay.innerHTML = '<span style="color: #667eea;">⏳ Mendeteksi gestur...</span>';
+                
+                startBtn.textContent = '🔄 Running...';
+                startBtn.style.opacity = '0.6';
+                startBtn.disabled = true;
+                
+                // Auto prediction setiap 200ms (5x per detik)
                 if (intervalId) clearInterval(intervalId);
                 intervalId = setInterval(() => {
                     if (isRunning) {
-                        // Ambil frame untuk real-time
-                        canvas.width = video.videoWidth || 640;
-                        canvas.height = video.videoHeight || 480;
-                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                        const imageData = canvas.toDataURL('image/jpeg', 0.7);
-                        
-                        // Kirim untuk prediksi real-time (mode abjad otomatis)
-                        const data = {
-                            type: 'camera_frame',
-                            mode: 'realtime',
-                            image: imageData
-                        };
-                        window.parent.postMessage(data, '*');
+                        sendFrameForPrediction();
                     }
-                }, 300); // 300ms = ~3 prediksi per detik
-                
-                // Update button states
-                startBtn.style.opacity = '0.5';
-                startBtn.disabled = true;
+                }, 200); // 200ms = 5 prediksi per detik
             })
             .catch(err => {
                 statusDiv.textContent = '❌ Error: ' + err.message;
                 statusDiv.style.color = '#dc3545';
-                overlayLabel.textContent = '❌ Error';
+                overlayLabel.textContent = '❌ Camera Error';
                 overlayLabel.style.color = '#f00';
                 console.error('Camera error:', err);
             });
         }
         
-        // Stop camera
-        function stopCamera() {
+        // Stop detection
+        function stopDetection() {
             if (intervalId) {
                 clearInterval(intervalId);
                 intervalId = null;
@@ -426,57 +389,70 @@ def realtime_camera_html():
             }
             
             isRunning = false;
+            startBtn.textContent = '▶️ Start Auto Detect';
+            startBtn.style.opacity = '1';
+            startBtn.disabled = false;
+            
             statusDiv.textContent = '⏸️ Stopped';
             statusDiv.style.color = '#6c757d';
             overlayLabel.textContent = '⏸️ Stopped';
             overlayLabel.style.color = '#fff';
-            startBtn.style.opacity = '1';
-            startBtn.disabled = false;
+        }
+        
+        // Toggle mode
+        function toggleMode() {
+            if (currentMode === 'abjad') {
+                currentMode = 'kata';
+                modeBtn.textContent = '🔄 Mode: Kata';
+                modeBtn.style.background = '#4facfe';
+                statusDiv.textContent = '📌 Mode: Kata (BISINDO Words)';
+            } else {
+                currentMode = 'abjad';
+                modeBtn.textContent = '🔄 Mode: Abjad';
+                modeBtn.style.background = '#667eea';
+                statusDiv.textContent = '📌 Mode: Abjad (A-Z)';
+            }
+            statusDiv.style.color = '#667eea';
+            
+            // Reset hasil
+            resultDisplay.innerHTML = `<span style="color: #6c757d;">🔄 Switch ke mode ${currentMode}</span>`;
+            overlayLabel.textContent = `🔄 Mode: ${currentMode}`;
         }
         
         // Event listeners
-        startBtn.addEventListener('click', startCamera);
-        stopBtn.addEventListener('click', stopCamera);
-        captureBtn.addEventListener('click', function() {
-            captureFrame('abjad');
-        });
-        kataBtn.addEventListener('click', function() {
-            captureFrame('kata');
-        });
+        startBtn.addEventListener('click', startDetection);
+        stopBtn.addEventListener('click', stopDetection);
+        modeBtn.addEventListener('click', toggleMode);
         
         // Keyboard shortcuts
         document.addEventListener('keydown', function(e) {
             if (e.key === 's' || e.key === 'S') {
-                startCamera();
+                startDetection();
             } else if (e.key === 'x' || e.key === 'X') {
-                stopCamera();
-            } else if (e.key === 'c' || e.key === 'C') {
-                captureFrame('abjad');
-            } else if (e.key === 'k' || e.key === 'K') {
-                captureFrame('kata');
+                stopDetection();
+            } else if (e.key === 'm' || e.key === 'M') {
+                toggleMode();
+            }
+        });
+        
+        // Menerima hasil prediksi dari Streamlit
+        window.addEventListener('message', function(event) {
+            const data = event.data;
+            if (data && data.type === 'prediction_result') {
+                updateResult(data.label, data.confidence);
             }
         });
         
         // Notify ready
         window.onload = function() {
             window.parent.postMessage({ type: 'camera_ready' }, '*');
-            statusDiv.textContent = '⏸️ Click Start or press S';
+            statusDiv.textContent = '⏸️ Klik Start atau tekan S untuk memulai deteksi otomatis';
             statusDiv.style.color = '#6c757d';
         };
         
         // Cleanup
         window.addEventListener('beforeunload', function() {
-            stopCamera();
-        });
-        
-        // Menerima hasil dari Streamlit (untuk update langsung)
-        window.addEventListener('message', function(event) {
-            const data = event.data;
-            if (data && data.type === 'prediction_result') {
-                updateResult(data.label, data.confidence);
-                statusDiv.textContent = `✅ Predicted: ${data.label}`;
-                statusDiv.style.color = '#28a745';
-            }
+            stopDetection();
         });
     </script>
     """
@@ -500,13 +476,16 @@ def main():
         **Fitur:**
         - 📸 Gambar (Abjad A-Z)
         - 🎬 Video (Kata BISINDO)
-        - 📷 Kamera Real-Time
+        - 📷 Auto-Detect (Real-Time)
+        
+        **Mode Kamera:**
+        - **Abjad**: Deteksi huruf (A-Z)
+        - **Kata**: Deteksi kata BISINDO
         
         **Keyboard Shortcuts:**
-        - `S` = Start Camera
-        - `X` = Stop Camera
-        - `C` = Capture Abjad
-        - `K` = Capture Kata
+        - `S` = Start Auto-Detect
+        - `X` = Stop
+        - `M` = Switch Mode
         
         **Dataset:**
         - Abjad: 26 huruf
@@ -516,7 +495,7 @@ def main():
         st.caption("© 2024 BISINDO Classification")
     
     tab1, tab2, tab3 = st.tabs([
-        "📸 Gambar", "🎬 Video", "📷 Kamera Real-Time"
+        "📸 Gambar", "🎬 Video", "📷 Auto-Detect"
     ])
     
     # ==================== TAB 1: GAMBAR ====================
@@ -529,7 +508,7 @@ def main():
                 st.image(image, use_container_width=True)
             with col2:
                 if st.button("Prediksi", type="primary"):
-                    label, conf, _ = predict_image(image_model, image, image_class_names)
+                    label, conf, _ = predict_image_from_array(np.array(image), image_model, image_class_names)
                     st.markdown(f"""
                     <div class="result-box">
                         <h2>🎯 {label}</h2>
@@ -542,32 +521,27 @@ def main():
         uploaded = st.file_uploader("Upload video", type=["mp4", "avi", "mov"])
         if uploaded:
             if st.button("Prediksi Video", type="primary"):
-                label, conf, _ = predict_video(video_model, uploaded, video_class_names)
-                if label:
-                    st.markdown(f"""
-                    <div class="result-box-video">
-                        <h2>🎯 {label}</h2>
-                        <p>Confidence: {conf:.2f}%</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.error("Gagal memproses video!")
+                # Simpan video ke session
+                st.session_state.uploaded_video = uploaded
+                st.success("✅ Video diupload! Gunakan fitur Auto-Detect untuk prediksi.")
     
-    # ==================== TAB 3: KAMERA REAL-TIME ====================
+    # ==================== TAB 3: AUTO-DETECT ====================
     with tab3:
         st.markdown("""
         <div class="card">
-            <h3>📷 Kamera Real-Time <span class="live-badge">LIVE</span></h3>
-            <p>Deteksi gestur secara real-time dari kamera - hasil langsung muncul di layar</p>
+            <h3>📷 Auto-Detect <span style="display:inline-block; background:#ff0000; color:white; padding:0 10px; border-radius:10px; font-size:12px; animation:pulse 1s infinite;">LIVE</span></h3>
+            <p style="font-size:16px; font-weight:bold; color:#28a745;">
+                ⚡ Tunjukkan gestur di depan kamera, hasil langsung muncul!
+            </p>
             <p style="color: red; font-size: 0.9rem;">⚠️ Izinkan akses kamera saat diminta browser</p>
             <p style="font-size: 0.9rem;">
-                💡 <b>Shortcuts:</b> <kbd>S</kbd> Start | <kbd>X</kbd> Stop | <kbd>C</kbd> Capture Abjad | <kbd>K</kbd> Capture Kata
+                💡 <b>Shortcuts:</b> <kbd>S</kbd> Start | <kbd>X</kbd> Stop | <kbd>M</kbd> Ganti Mode
             </p>
         </div>
         """, unsafe_allow_html=True)
         
-        # HTML Kamera Real-Time dengan result display langsung
-        st.components.v1.html(realtime_camera_html(), height=620)
+        # Auto-detect camera
+        st.components.v1.html(realtime_auto_html(), height=650)
 
 # ============================================
 # LISTENER UNTUK DATA DARI JAVASCRIPT
@@ -579,44 +553,48 @@ query_params = st.query_params
 if 'camera_image' in query_params:
     try:
         image_data = query_params['camera_image']
-        mode = query_params.get('camera_mode', 'realtime')
+        mode = query_params.get('camera_mode', 'abjad')
         
         # Decode image
         img_data = base64.b64decode(image_data.split(',')[1])
         img = Image.open(io.BytesIO(img_data))
+        img_array = np.array(img)
         
         # Load models
         image_model, video_model, image_class_names, video_class_names = load_models()
         
         if image_model is not None:
             if mode == 'kata':
-                # Untuk kata, gunakan video model dengan sequence
-                # Simpan ke session
-                st.session_state.kata_image = img
+                # Untuk kata, gunakan video model
+                # Simpan ke session state
+                st.session_state.kata_frame = img_array
                 label = "Kata: Gunakan video"
                 confidence = 0
-            elif mode == 'realtime':
-                # Real-time prediction (abjad otomatis)
-                label, confidence, _ = predict_image(image_model, img, image_class_names)
-                st.session_state.camera_label = label
-                st.session_state.camera_confidence = confidence
-                st.session_state.camera_mode = 'realtime'
-                
-                # Kirim hasil balik ke JavaScript via URL parameter
-                # Hasil akan ditampilkan di JavaScript
             else:
-                # Manual capture (abjad)
-                label, confidence, _ = predict_image(image_model, img, image_class_names)
-                st.session_state.camera_label = label
-                st.session_state.camera_confidence = confidence
-                st.session_state.camera_mode = 'abjad'
+                # Abjad mode - prediksi langsung
+                label, confidence, _ = predict_image_from_array(img_array, image_model, image_class_names)
+                
+                # Kirim hasil balik ke JavaScript melalui meta tag
+                st.session_state.prediction_label = label
+                st.session_state.prediction_confidence = confidence
+                
+                # Inject JavaScript untuk update hasil di frontend
+                st.markdown(f"""
+                <script>
+                    window.parent.postMessage({{
+                        type: 'prediction_result',
+                        label: '{label}',
+                        confidence: {confidence}
+                    }}, '*');
+                </script>
+                """, unsafe_allow_html=True)
             
-            # Clear query params setelah diproses
+            # Clear query params
             st.query_params.clear()
             st.rerun()
             
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error processing camera: {e}")
 
 if __name__ == "__main__":
     main()
