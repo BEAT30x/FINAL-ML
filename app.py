@@ -139,41 +139,53 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# 3. LOAD CORE MODELS - MULTI PATH SUPPORT
+# 3. LOAD CORE MODELS - DENGAN CEK FILE
 # ============================================
 @st.cache_resource
 def load_models():
     try:
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         
-        # Cari di berbagai lokasi
-        possible_paths = [
-            {"path": "models", "type": "folder"},
-            {"path": "", "type": "root"},
-            {"path": "model", "type": "folder"},
+        # CEK FILE DI BEBERAPA LOKASI
+        locations = [
+            os.path.join(BASE_DIR, "models"),
+            BASE_DIR,
+            os.path.join(BASE_DIR, "model"),
         ]
         
-        for loc in possible_paths:
-            model_path = os.path.join(BASE_DIR, loc["path"])
-            image_h5 = os.path.join(model_path, "image_model.h5")
-            video_h5 = os.path.join(model_path, "video_model.h5")
-            image_pkl = os.path.join(model_path, "image_class_names.pkl")
-            video_pkl = os.path.join(model_path, "video_class_names.pkl")
+        for loc in locations:
+            image_h5 = os.path.join(loc, "image_model.h5")
+            video_h5 = os.path.join(loc, "video_model.h5")
+            image_pkl = os.path.join(loc, "image_class_names.pkl")
+            video_pkl = os.path.join(loc, "video_class_names.pkl")
             
+            # CEK APAKAH SEMUA FILE ADA
             if os.path.exists(image_h5) and os.path.exists(video_h5):
-                image_model = tf.keras.models.load_model(image_h5)
-                video_model = tf.keras.models.load_model(video_h5)
-                
-                with open(image_pkl, "rb") as f:
-                    image_class_names = pickle.load(f)
-                with open(video_pkl, "rb") as f:
-                    video_class_names = pickle.load(f)
-                
-                st.success(f"✅ Model ditemukan di: {loc['path'] or 'ROOT'}")
-                return image_model, video_model, image_class_names, video_class_names
+                try:
+                    image_model = tf.keras.models.load_model(image_h5)
+                    video_model = tf.keras.models.load_model(video_h5)
+                    
+                    with open(image_pkl, "rb") as f:
+                        image_class_names = pickle.load(f)
+                    with open(video_pkl, "rb") as f:
+                        video_class_names = pickle.load(f)
+                    
+                    st.success(f"✅ Model berhasil dimuat dari: {loc}")
+                    return image_model, video_model, image_class_names, video_class_names
+                except Exception as e:
+                    st.warning(f"⚠️ Gagal load dari {loc}: {e}")
+                    continue
         
-        st.error("❌ Model tidak ditemukan di semua lokasi!")
-        st.info("Pastikan file model ada di folder 'models/' atau ROOT folder")
+        # TAMPILKAN FILE YANG ADA
+        st.error("❌ Model tidak ditemukan!")
+        st.info("📁 File yang dibutuhkan:")
+        st.code("""
+        image_model.h5
+        video_model.h5
+        image_class_names.pkl
+        video_class_names.pkl
+        """)
+        st.info("📍 Letakkan file di folder: 'models/' atau ROOT folder")
         return None, None, None, None
         
     except Exception as e:
@@ -373,7 +385,7 @@ else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM CAMERA (ABJAD) - DIPERBAIKI
+    # TAB 3: LIVE STREAM CAMERA (ABJAD)
     # ----------------------------------------------------------------
     with tab3:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
@@ -388,27 +400,14 @@ else:
             conf_placeholder = st.empty()
             
         if run_abjad:
-            cap = None
-            # Coba beberapa index kamera
-            for i in range(3):
-                cap = cv2.VideoCapture(i)
-                if cap.isOpened():
-                    break
-                else:
-                    cap.release()
-                    cap = None
-            
-            if cap is None:
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
                 st.error("Sistem gagal terhubung ke perangkat keras Kamera.")
                 st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
-                st.info("💡 Atau gunakan TAB 1 (Upload Gambar) sebagai alternatif.")
             else:
-                st.success("✅ Kamera berhasil terhubung!")
                 while run_abjad:
                     ret, frame = cap.read()
-                    if not ret: 
-                        st.warning("Kamera terputus, mencoba reconnect...")
-                        break
+                    if not ret: break
                     
                     frame = cv2.flip(frame, 1)
                     label, conf = predict_frame_gambar(image_model, frame, image_class_names)
@@ -431,7 +430,7 @@ else:
             frame_window.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
 
     # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM CAMERA (KATA) - DIPERBAIKI
+    # TAB 4: LIVE STREAM CAMERA (KATA)
     # ----------------------------------------------------------------
     with tab4:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinambungan.</p></div>', unsafe_allow_html=True)
@@ -446,28 +445,16 @@ else:
             kata_lbl = st.empty()
             
         if run_kata:
-            cap = None
-            for i in range(3):
-                cap = cv2.VideoCapture(i)
-                if cap.isOpened():
-                    break
-                else:
-                    cap.release()
-                    cap = None
-            
-            if cap is None:
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
                 st.error("Gagal memuat sensor kamera aktif.")
                 st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
-                st.info("💡 Atau gunakan TAB 2 (Upload Video) sebagai alternatif.")
             else:
-                st.success("✅ Kamera berhasil terhubung!")
                 live_buf = deque(maxlen=20)
                 
                 while run_kata:
                     ret, frame = cap.read()
-                    if not ret:
-                        st.warning("Kamera terputus, mencoba reconnect...")
-                        break
+                    if not ret: break
                     
                     frame = cv2.flip(frame, 1)
                     live_buf.append(frame)
