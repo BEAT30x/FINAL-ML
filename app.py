@@ -228,7 +228,6 @@ class AbjadProcessor(VideoProcessorBase):
         self.result_label = image_class_names[pred_idx]
         self.result_conf  = float(probs[pred_idx] * 100)
 
-        # Overlay teks hasil di frame video
         label_text = f"{self.result_label}  {self.result_conf:.1f}%"
         cv2.rectangle(img_bgr, (0, 0), (300, 50), (79, 70, 229), -1)
         cv2.putText(img_bgr, label_text, (10, 35),
@@ -252,7 +251,6 @@ class KataProcessor(VideoProcessorBase):
         img_bgr = cv2.flip(img_bgr, 1)
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
-        # Tambah ke buffer setiap 3 frame (kurangi beban CPU)
         self.frame_count += 1
         if self.frame_count % 3 == 0:
             resized = cv2.resize(img_rgb, (96, 96))
@@ -269,7 +267,6 @@ class KataProcessor(VideoProcessorBase):
             self.result_conf  = float(preds[pred_class] * 100)
             self.buffer.clear()
 
-        # Overlay teks di frame
         bar_width = int((buf_len / 20) * 300)
         cv2.rectangle(img_bgr, (0, 0), (320, 55), (15, 23, 42), -1)
         cv2.rectangle(img_bgr, (5, 35), (5 + bar_width, 48), (16, 185, 129), -1)
@@ -425,7 +422,7 @@ else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM REAL-TIME — ABJAD (streamlit-webrtc)
+    # TAB 3: LIVE STREAM REAL-TIME — ABJAD (FIX: hapus while loop)
     # ----------------------------------------------------------------
     with tab3:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Kamera berjalan real-time dan menerjemahkan abjad setiap frame secara otomatis.</p></div>', unsafe_allow_html=True)
@@ -448,32 +445,34 @@ else:
             if "abjad_history" not in st.session_state:
                 st.session_state.abjad_history = []
 
+            # FIX: Ganti while loop dengan st.rerun() untuk menghindari DOM crash
             if ctx_abjad.video_processor:
-                # Loop update hasil prediksi dari processor
-                while ctx_abjad.state.playing:
-                    label = ctx_abjad.video_processor.result_label
-                    conf  = ctx_abjad.video_processor.result_conf
+                label = ctx_abjad.video_processor.result_label
+                conf  = ctx_abjad.video_processor.result_conf
 
-                    lbl_box.markdown(f"""
-                    <div class="kpi-box">
-                        <div class="kpi-title">Karakter Terbaca</div>
-                        <div class="kpi-value" style="color:#4f46e5;">{label}</div>
-                    </div>""", unsafe_allow_html=True)
-                    conf_bar.progress(conf / 100, text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
+                lbl_box.markdown(f"""
+                <div class="kpi-box">
+                    <div class="kpi-title">Karakter Terbaca</div>
+                    <div class="kpi-value" style="color:#4f46e5;">{label}</div>
+                </div>""", unsafe_allow_html=True)
+                conf_bar.progress(conf / 100, text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
 
-                    if label != "-":
-                        if not st.session_state.abjad_history or st.session_state.abjad_history[-1] != label:
-                            st.session_state.abjad_history.append(label)
-                        if len(st.session_state.abjad_history) > 15:
-                            st.session_state.abjad_history.pop(0)
+                if label != "-":
+                    if (not st.session_state.abjad_history or
+                            st.session_state.abjad_history[-1] != label):
+                        st.session_state.abjad_history.append(label)
+                    if len(st.session_state.abjad_history) > 15:
+                        st.session_state.abjad_history.pop(0)
 
-                    hist_box.markdown("**Histori:** " + " → ".join(st.session_state.abjad_history))
-                    time.sleep(0.1)
+                hist_box.markdown("**Histori:** " + " → ".join(st.session_state.abjad_history))
+
+                time.sleep(0.1)
+                st.rerun()
             else:
                 lbl_box.info("Klik **START** pada panel kamera untuk mengaktifkan deteksi real-time.")
 
     # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM REAL-TIME — KATA (streamlit-webrtc + buffer)
+    # TAB 4: LIVE STREAM REAL-TIME — KATA (FIX: hapus while loop)
     # ----------------------------------------------------------------
     with tab4:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 frame otomatis dari kamera secara berkesinambungan.</p></div>', unsafe_allow_html=True)
@@ -492,27 +491,28 @@ else:
             buf_bar  = st.empty()
             kata_box = st.empty()
 
+            # FIX: Ganti while loop dengan st.rerun() untuk menghindari DOM crash
             if ctx_kata.video_processor:
-                while ctx_kata.state.playing:
-                    label    = ctx_kata.video_processor.result_label
-                    conf     = ctx_kata.video_processor.result_conf
-                    buf_len  = len(ctx_kata.video_processor.buffer)
+                label   = ctx_kata.video_processor.result_label
+                conf    = ctx_kata.video_processor.result_conf
+                buf_len = len(ctx_kata.video_processor.buffer)
 
-                    buf_bar.progress(
-                        float(buf_len / 20),
-                        text=f"Stabilitas Buffer Isyarat: {buf_len}/20 Frames Packed"
-                    )
+                buf_bar.progress(
+                    float(buf_len / 20),
+                    text=f"Stabilitas Buffer Isyarat: {buf_len}/20 Frames Packed"
+                )
 
-                    if label != "-":
-                        kata_box.markdown(f"""
-                        <div class="kpi-box" style="border-left-color:#10b981;">
-                            <div class="kpi-title">Terjemahan Frasa/Kata</div>
-                            <div class="kpi-value" style="color:#059669;">"{label.upper()}"</div>
-                            <small style="color:#64748b;">Akurasi Sekuensial: {conf:.1f}%</small>
-                        </div>""", unsafe_allow_html=True)
-                    else:
-                        kata_box.warning("Menyelaraskan data sekuens... Pertahankan posisi tangan Anda di depan kamera.")
+                if label != "-":
+                    kata_box.markdown(f"""
+                    <div class="kpi-box" style="border-left-color:#10b981;">
+                        <div class="kpi-title">Terjemahan Frasa/Kata</div>
+                        <div class="kpi-value" style="color:#059669;">"{label.upper()}"</div>
+                        <small style="color:#64748b;">Akurasi Sekuensial: {conf:.1f}%</small>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    kata_box.warning("Menyelaraskan data sekuens... Pertahankan posisi tangan Anda di depan kamera.")
 
-                    time.sleep(0.1)
+                time.sleep(0.1)
+                st.rerun()
             else:
                 kata_box.info("Klik **START** pada panel kamera untuk mulai memproses data gestur berbasis waktu.")
