@@ -1,173 +1,159 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-import cv2
+cv2 import cv2
 import pickle
 import os
 from PIL import Image
 import tempfile
 import time
 from collections import deque
+import base64
+import io
 
 # ============================================
-# 1. KONFIGURASI HALAMAN & TEMA UTAMA
+# KONFIGURASI
 # ============================================
-st.set_page_config(
-    page_title="BISINDO Intelligence Translator",
-    page_icon="🖐️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Tema UI/UX Profesional (Clean Minimalist & Enterprise Look)
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    html, body, [data-testid="stAppViewContainer"] {
-        font-family: 'Inter', sans-serif;
-        background-color: #f8fafc;
-    }
-    
-    .dashboard-header {
-        background: #ffffff;
-        padding: 1.75rem 2rem;
-        border-radius: 12px;
-        margin-bottom: 2rem;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-    .header-title-section h1 {
-        font-size: 1.8rem;
-        color: #0f172a;
-        font-weight: 700;
-        margin: 0;
-        letter-spacing: -0.02em;
-    }
-    .header-title-section p {
-        font-size: 0.95rem;
-        color: #64748b;
-        margin: 0.25rem 0 0 0;
-    }
-    .badge-status {
-        background-color: #f0fdf4;
-        color: #166534;
-        padding: 0.35rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 0.85rem;
-        font-weight: 500;
-        border: 1px solid #bbf7d0;
-    }
-    
-    .pro-card {
-        background: #ffffff;
-        padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-        margin-bottom: 1.5rem;
-    }
-    .pro-card h3 {
-        font-size: 1.15rem;
-        font-weight: 600;
-        color: #1e293b;
-        margin-top: 0;
-        margin-bottom: 0.5rem;
-    }
-    .pro-card p {
-        font-size: 0.9rem;
-        color: #64748b;
-        margin-bottom: 1rem;
-    }
-
-    .kpi-box {
-        background: #fdfdfd;
-        border: 1px solid #e2e8f0;
-        border-left: 4px solid #4f46e5;
-        padding: 1.25rem;
-        border-radius: 8px;
-        margin-top: 1rem;
-    }
-    .kpi-title {
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: #64748b;
-        font-weight: 600;
-    }
-    .kpi-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #0f172a;
-        margin: 0.25rem 0;
-    }
-    
-    button[data-baseweb="tab"] {
-        font-size: 0.95rem;
-        font-weight: 500;
-        color: #64748b;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: #4f46e5 !important;
-        font-weight: 600;
-    }
-    
-    .video-stream-container img {
-        border-radius: 12px;
-        border: 1px solid #cbd5e1;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
-    }
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="BISINDO", layout="wide")
 
 # ============================================
-# 2. APPLICATION HEADER
-# ============================================
-st.markdown("""
-<div class="dashboard-header">
-    <div class="header-title-section">
-        <h1>🖐️ BISINDO Intelligence System</h1>
-        <p>Platform enterprise klasifikasi dan penerjemah Bahasa Isyarat Indonesia secara real-time</p>
-    </div>
-    <div>
-        <span class="badge-status">● Engine V2.0 Active</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ============================================
-# 3. LOAD CORE MODELS - DENGAN CEK VALIDITAS FILE
+# LOAD MODEL - CEK SEMUA LOKASI
 # ============================================
 @st.cache_resource
 def load_models():
-    try:
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    
+    # Cari file di semua kemungkinan lokasi
+    possible_paths = [
+        BASE_DIR,
+        os.path.join(BASE_DIR, "models"),
+        os.path.join(BASE_DIR, "model"),
+        os.path.join(BASE_DIR, ".."),
+    ]
+    
+    for path in possible_paths:
+        image_h5 = os.path.join(path, "image_model.h5")
+        video_h5 = os.path.join(path, "video_model.h5")
+        image_pkl = os.path.join(path, "image_class_names.pkl")
+        video_pkl = os.path.join(path, "video_class_names.pkl")
         
-        # Cek file di berbagai lokasi
-        locations = [
-            os.path.join(BASE_DIR, "models"),
-            BASE_DIR,
-            os.path.join(BASE_DIR, "model"),
-        ]
+        if os.path.exists(image_h5) and os.path.exists(video_h5):
+            try:
+                st.info(f"✅ Model ditemukan di: {path}")
+                image_model = tf.keras.models.load_model(image_h5)
+                video_model = tf.keras.models.load_model(video_h5)
+                
+                with open(image_pkl, "rb") as f:
+                    image_class_names = pickle.load(f)
+                with open(video_pkl, "rb") as f:
+                    video_class_names = pickle.load(f)
+                
+                return image_model, video_model, image_class_names, video_class_names
+            except Exception as e:
+                st.warning(f"⚠️ Gagal load dari {path}: {e}")
+                continue
+    
+    # Tampilkan daftar file yang ada di root
+    st.error("❌ Model tidak ditemukan!")
+    st.code(f"""
+    File di root folder ({BASE_DIR}):
+    {os.listdir(BASE_DIR)}
+    """)
+    return None, None, None, None
+
+image_model, video_model, image_class_names, video_class_names = load_models()
+
+# ============================================
+# PREPROCESSING
+# ============================================
+def preprocess_image(image):
+    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+    image = image.resize((224, 224))
+    img_array = np.array(image, dtype=np.float32)
+    img_array = preprocess_input(img_array)
+    img_array = np.expand_dims(img_array, axis=0)
+    return img_array
+
+def predict_frame_gambar(model, frame, class_names):
+    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    img = Image.fromarray(frame_rgb).resize((224, 224))
+    img_array = np.array(img, dtype=np.float32)
+    img_array = preprocess_input(img_array)
+    img_array = np.expand_dims(img_array, axis=0)
+    
+    predictions = model.predict(img_array, verbose=0)
+    pred_class = np.argmax(predictions[0])
+    return class_names[pred_class], predictions[0][pred_class] * 100
+
+# ============================================
+# HALAMAN UTAMA
+# ============================================
+st.title("🖐️ BISINDO - Deteksi Gestur")
+
+if image_model is None:
+    st.stop()
+
+tab1, tab2 = st.tabs(["📸 Upload Gambar", "📷 Live Camera"])
+
+# ============ TAB 1: UPLOAD ============
+with tab1:
+    uploaded = st.file_uploader("Upload gambar", type=["jpg", "png", "jpeg"])
+    if uploaded:
+        img = Image.open(uploaded)
+        st.image(img, width=300)
+        if st.button("Prediksi"):
+            processed = preprocess_image(img)
+            probs = image_model.predict(processed, verbose=0)[0]
+            pred = np.argmax(probs)
+            st.success(f"🎯 {image_class_names[pred]} ({probs[pred]*100:.1f}%)")
+
+# ============ TAB 2: LIVE CAMERA ============
+with tab2:
+    st.write("Aktifkan toggle untuk menyalakan kamera")
+    run = st.toggle("▶️ Aktifkan Kamera", key="cam")
+    
+    frame_placeholder = st.empty()
+    result_placeholder = st.empty()
+    conf_placeholder = st.empty()
+    
+    if run:
+        cap = None
+        # Coba index 0, 1, 2
+        for i in range(3):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                break
         
-        for loc in locations:
-            image_h5 = os.path.join(loc, "image_model.h5")
-            video_h5 = os.path.join(loc, "video_model.h5")
-            image_pkl = os.path.join(loc, "image_class_names.pkl")
-            video_pkl = os.path.join(loc, "video_class_names.pkl")
+        if cap is None or not cap.isOpened():
+            st.error("❌ Tidak ada kamera yang terdeteksi!")
+            st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
+        else:
+            st.success("✅ Kamera terdeteksi! Tunjukkan gestur di depan kamera.")
             
-            # CEK UKURAN FILE - file yang valid minimal 1MB
-            if os.path.exists(image_h5) and os.path.exists(video_h5):
-                img_size = os.path.getsize(image_h5) / (1024 * 1024)
-                vid_size = os.path.getsize(video_h5) / (1024 * 1024)
+            while run:
+                ret, frame = cap.read()
+                if not ret:
+                    break
                 
-                if img_size < 1 or vid_size < 1:
-                    st.warning(f"⚠️ File model di {loc} terlalu kecil ({img_size:.2f}MB / {vid_size:.2f}MB), mungkin rusak!")
-                    continue
+                frame = cv2.flip(frame, 1)
+                label, conf = predict_frame_gambar(image_model, frame, image_class_names)
                 
-                try:
-                    st.info(f"⏳ Loading model dari: {loc}...")
-                    image_model = tf.keras.models.load
+                # Tampilkan hasil
+                result_placeholder.markdown(f"""
+                <div style="background: linear-gradient(135deg, #667eea, #764ba2); 
+                            padding: 2rem; border-radius: 15px; color: white; text-align: center;">
+                    <h1 style="font-size: 3rem; margin: 0;">🎯 {label}</h1>
+                    <p style="font-size: 1.2rem;">Confidence: {conf:.1f}%</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                conf_placeholder.progress(conf/100)
+                
+                # Tampilkan frame
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                
+                time.sleep(0.05)  # Jeda untuk stabilitas
+            
+            cap.release()
