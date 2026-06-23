@@ -392,93 +392,271 @@ else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM CAMERA (ABJAD)
-    # FIX: Ganti cv2.VideoCapture(0) → st.camera_input() agar bisa jalan di cloud
+    # TAB 3: LIVE STREAM REAL-TIME (ABJAD) — JavaScript WebRTC
+    # Capture otomatis tiap 1.5 detik dari browser, kirim ke Python
     # ----------------------------------------------------------------
     with tab3:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
-        
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Kamera berjalan otomatis dan menerjemahkan abjad secara real-time.</p></div>', unsafe_allow_html=True)
+
         c1, c2 = st.columns([2, 1], gap="medium")
+
         with c1:
-            # st.camera_input bekerja di browser — tidak butuh webcam server
-            cam_photo = st.camera_input("📷 Arahkan tangan ke kamera, lalu klik tombol capture", key="cam_abjad")
+            # Ambil frame dari query param jika ada (hasil kiriman JS)
+            q = st.query_params
+            frame_data_abjad = q.get("frame_abjad", None)
+
+            # Tampilkan komponen kamera JS — auto-capture tiap 1.5 detik
+            st.components.v1.html("""
+            <div style="font-family:Inter,sans-serif; text-align:center;">
+                <video id="vid3" autoplay playsinline muted
+                    style="width:100%; max-height:360px; border-radius:12px;
+                           background:#000; border:1px solid #cbd5e1;"></video>
+                <canvas id="cvs3" style="display:none;"></canvas>
+                <div style="margin-top:10px; display:flex; gap:10px; justify-content:center;">
+                    <button id="startBtn3"
+                        style="background:#4f46e5;color:white;padding:10px 24px;
+                               border:none;border-radius:8px;font-size:14px;cursor:pointer;">
+                        ▶ Mulai Real-time
+                    </button>
+                    <button id="stopBtn3"
+                        style="background:#ef4444;color:white;padding:10px 24px;
+                               border:none;border-radius:8px;font-size:14px;cursor:pointer;display:none;">
+                        ■ Hentikan
+                    </button>
+                </div>
+                <div id="status3" style="margin-top:8px;font-size:13px;color:#64748b;">
+                    ⏸ Klik Mulai untuk mengaktifkan kamera real-time
+                </div>
+            </div>
+            <script>
+                const vid3     = document.getElementById('vid3');
+                const cvs3     = document.getElementById('cvs3');
+                const ctx3     = cvs3.getContext('2d');
+                const startBtn = document.getElementById('startBtn3');
+                const stopBtn  = document.getElementById('stopBtn3');
+                const status3  = document.getElementById('status3');
+                let stream3    = null;
+                let intervalId = null;
+
+                startBtn.addEventListener('click', async () => {
+                    try {
+                        stream3 = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+                        vid3.srcObject = stream3;
+                        await vid3.play();
+                        startBtn.style.display = 'none';
+                        stopBtn.style.display  = 'inline-block';
+                        status3.innerHTML = '🟢 Kamera aktif — prediksi berjalan otomatis...';
+                        status3.style.color = '#166534';
+
+                        // Capture & kirim tiap 1.5 detik
+                        intervalId = setInterval(() => {
+                            cvs3.width  = vid3.videoWidth  || 640;
+                            cvs3.height = vid3.videoHeight || 480;
+                            ctx3.drawImage(vid3, 0, 0, cvs3.width, cvs3.height);
+                            const b64 = cvs3.toDataURL('image/jpeg', 0.6);
+                            const base = window.location.href.split('?')[0];
+                            window.location.replace(base + '?frame_abjad=' + encodeURIComponent(b64));
+                        }, 1500);
+
+                    } catch(e) {
+                        status3.innerHTML = '❌ Error kamera: ' + e.message;
+                        status3.style.color = 'red';
+                    }
+                });
+
+                stopBtn.addEventListener('click', () => {
+                    clearInterval(intervalId);
+                    if (stream3) stream3.getTracks().forEach(t => t.stop());
+                    vid3.srcObject = null;
+                    stopBtn.style.display  = 'none';
+                    startBtn.style.display = 'inline-block';
+                    status3.innerHTML = '⏹ Kamera dihentikan.';
+                    status3.style.color = '#64748b';
+                });
+            </script>
+            """, height=460)
+
         with c2:
             st.markdown("##### 📊 LOG PREDIKSI SISTEM")
             lbl_placeholder  = st.empty()
             conf_placeholder = st.empty()
-            
-        if cam_photo is not None:
-            img = Image.open(cam_photo)
-            label, conf = predict_frame_gambar(image_model, img, image_class_names)
-            
-            lbl_placeholder.markdown(f"""
-            <div class="kpi-box">
-                <div class="kpi-title">Karakter Terbaca</div>
-                <div class="kpi-value" style="color: #4f46e5;">{label}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
+            hist_placeholder = st.empty()
+
+        # Proses frame yang dikirim JS
+        if frame_data_abjad:
+            try:
+                import base64, io
+                b64 = frame_data_abjad.split(',')[1] if ',' in frame_data_abjad else frame_data_abjad
+                img_bytes = base64.b64decode(b64)
+                img = Image.open(io.BytesIO(img_bytes))
+                label, conf = predict_frame_gambar(image_model, img, image_class_names)
+
+                lbl_placeholder.markdown(f"""
+                <div class="kpi-box">
+                    <div class="kpi-title">Karakter Terbaca</div>
+                    <div class="kpi-value" style="color:#4f46e5;">{label}</div>
+                </div>""", unsafe_allow_html=True)
+                conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
+
+                # Simpan histori prediksi
+                if "abjad_history" not in st.session_state:
+                    st.session_state.abjad_history = []
+                st.session_state.abjad_history.append(label)
+                if len(st.session_state.abjad_history) > 10:
+                    st.session_state.abjad_history.pop(0)
+
+                hist_placeholder.markdown(
+                    "**Histori:** " + " → ".join(st.session_state.abjad_history)
+                )
+                st.query_params.clear()
+            except Exception as e:
+                lbl_placeholder.error(f"Error prediksi: {e}")
         else:
-            lbl_placeholder.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
+            lbl_placeholder.info("Klik **▶ Mulai Real-time** untuk mengaktifkan kamera.")
 
     # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM CAMERA (KATA)
-    # FIX: Kumpulkan frame dari st.camera_input berulang kali (buffer manual)
-    #      agar kompatibel dengan Streamlit Cloud tanpa cv2.VideoCapture(0)
+    # TAB 4: LIVE STREAM REAL-TIME (KATA) — JS WebRTC + buffer otomatis
+    # Capture otomatis tiap 0.5 detik, kumpulkan 20 frame, prediksi kata
     # ----------------------------------------------------------------
     with tab4:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinambungan.</p></div>', unsafe_allow_html=True)
-        
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Kamera mengumpulkan 20 frame otomatis secara berkesinambungan untuk prediksi kata.</p></div>', unsafe_allow_html=True)
+
         c1, c2 = st.columns([2, 1], gap="medium")
+
         with c1:
-            st.info("📸 Ambil foto berulang sebanyak 20x untuk membangun buffer sekuensial kata isyarat.")
-            cam_kata = st.camera_input("📷 Capture frame isyarat tangan", key="cam_kata")
+            q = st.query_params
+            frame_data_kata = q.get("frame_kata", None)
+
+            st.components.v1.html("""
+            <div style="font-family:Inter,sans-serif; text-align:center;">
+                <video id="vid4" autoplay playsinline muted
+                    style="width:100%; max-height:360px; border-radius:12px;
+                           background:#000; border:1px solid #cbd5e1;"></video>
+                <canvas id="cvs4" style="display:none;"></canvas>
+                <div style="margin-top:10px; display:flex; gap:10px; justify-content:center;">
+                    <button id="startBtn4"
+                        style="background:#10b981;color:white;padding:10px 24px;
+                               border:none;border-radius:8px;font-size:14px;cursor:pointer;">
+                        ▶ Mulai Rekam Kata
+                    </button>
+                    <button id="stopBtn4"
+                        style="background:#ef4444;color:white;padding:10px 24px;
+                               border:none;border-radius:8px;font-size:14px;cursor:pointer;display:none;">
+                        ■ Hentikan
+                    </button>
+                </div>
+                <div id="status4" style="margin-top:8px;font-size:13px;color:#64748b;">
+                    ⏸ Klik Mulai untuk mengumpulkan frame kata secara otomatis
+                </div>
+            </div>
+            <script>
+                const vid4      = document.getElementById('vid4');
+                const cvs4      = document.getElementById('cvs4');
+                const ctx4      = cvs4.getContext('2d');
+                const startBtn4 = document.getElementById('startBtn4');
+                const stopBtn4  = document.getElementById('stopBtn4');
+                const status4   = document.getElementById('status4');
+                let stream4     = null;
+                let interval4   = null;
+                let frameCount  = 0;
+
+                startBtn4.addEventListener('click', async () => {
+                    try {
+                        stream4 = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+                        vid4.srcObject = stream4;
+                        await vid4.play();
+                        startBtn4.style.display = 'none';
+                        stopBtn4.style.display  = 'inline-block';
+                        frameCount = 0;
+
+                        interval4 = setInterval(() => {
+                            frameCount++;
+                            status4.innerHTML = '🟢 Mengumpulkan frame ' + frameCount + '/20...';
+                            status4.style.color = '#166534';
+
+                            cvs4.width  = vid4.videoWidth  || 640;
+                            cvs4.height = vid4.videoHeight || 480;
+                            ctx4.drawImage(vid4, 0, 0, cvs4.width, cvs4.height);
+                            const b64  = cvs4.toDataURL('image/jpeg', 0.5);
+                            const base = window.location.href.split('?')[0];
+                            window.location.replace(base + '?frame_kata=' + encodeURIComponent(b64));
+
+                            if (frameCount >= 20) {
+                                frameCount = 0;
+                                status4.innerHTML = '🔄 Prediksi dijalankan, mengulang buffer...';
+                            }
+                        }, 600);
+
+                    } catch(e) {
+                        status4.innerHTML = '❌ Error kamera: ' + e.message;
+                        status4.style.color = 'red';
+                    }
+                });
+
+                stopBtn4.addEventListener('click', () => {
+                    clearInterval(interval4);
+                    if (stream4) stream4.getTracks().forEach(t => t.stop());
+                    vid4.srcObject = null;
+                    stopBtn4.style.display  = 'none';
+                    startBtn4.style.display = 'inline-block';
+                    status4.innerHTML = '⏹ Kamera dihentikan.';
+                    status4.style.color = '#64748b';
+                });
+            </script>
+            """, height=460)
+
         with c2:
             st.markdown("##### 📊 ANALISIS BINGKAI TEMPORAL")
             buffer_progress = st.empty()
             kata_lbl        = st.empty()
 
-        # Simpan buffer frame di session_state
+        # Inisialisasi buffer di session_state
         if "kata_frame_buffer" not in st.session_state:
             st.session_state.kata_frame_buffer = []
 
-        if cam_kata is not None:
-            img_kata = Image.open(cam_kata).resize((96, 96))
-            frame_arr = np.array(img_kata, dtype=np.float32) / 255.0
+        # Proses frame yang dikirim JS
+        if frame_data_kata:
+            try:
+                import base64, io
+                b64 = frame_data_kata.split(',')[1] if ',' in frame_data_kata else frame_data_kata
+                img_bytes = base64.b64decode(b64)
+                img_kata  = Image.open(io.BytesIO(img_bytes)).resize((96, 96))
+                frame_arr = np.array(img_kata, dtype=np.float32) / 255.0
 
-            # Tambah ke buffer, maksimal 20 frame
-            st.session_state.kata_frame_buffer.append(frame_arr)
-            if len(st.session_state.kata_frame_buffer) > 20:
-                st.session_state.kata_frame_buffer.pop(0)
+                st.session_state.kata_frame_buffer.append(frame_arr)
+                if len(st.session_state.kata_frame_buffer) > 20:
+                    st.session_state.kata_frame_buffer.pop(0)
 
-            current_len = len(st.session_state.kata_frame_buffer)
-            buffer_progress.progress(float(current_len / 20), text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed")
+                current_len = len(st.session_state.kata_frame_buffer)
+                buffer_progress.progress(
+                    float(current_len / 20),
+                    text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed"
+                )
 
-            if current_len == 20 and video_model is not None and video_class_names:
-                frames_np  = np.array(st.session_state.kata_frame_buffer, dtype=np.float32)
-                video_arr  = np.expand_dims(frames_np, axis=0)
-                predictions = video_model.predict(video_arr, verbose=0)
-                pred_class  = np.argmax(predictions[0])
-                label       = video_class_names[pred_class]
-                conf        = float(predictions[0][pred_class] * 100)
+                if current_len == 20 and video_model is not None and video_class_names:
+                    frames_np   = np.array(st.session_state.kata_frame_buffer, dtype=np.float32)
+                    video_arr   = np.expand_dims(frames_np, axis=0)
+                    predictions = video_model.predict(video_arr, verbose=0)
+                    pred_class  = np.argmax(predictions[0])
+                    label       = video_class_names[pred_class]
+                    conf        = float(predictions[0][pred_class] * 100)
 
-                kata_lbl.markdown(f"""
-                <div class="kpi-box" style="border-left-color: #10b981;">
-                    <div class="kpi-title">Terjemahan Frasa/Kata</div>
-                    <div class="kpi-value" style="color: #059669;">"{label.upper()}"</div>
-                    <small style="color: #64748b;">Akurasi Sekuensial: {conf:.1f}%</small>
-                </div>
-                """, unsafe_allow_html=True)
-            elif video_model is None:
-                kata_lbl.error("❌ Model video tidak tersedia.")
-            else:
-                kata_lbl.warning("Menyelaraskan data sekuens... Pertahankan posisi tangan Anda di depan kamera.")
+                    kata_lbl.markdown(f"""
+                    <div class="kpi-box" style="border-left-color: #10b981;">
+                        <div class="kpi-title">Terjemahan Frasa/Kata</div>
+                        <div class="kpi-value" style="color: #059669;">"{label.upper()}"</div>
+                        <small style="color: #64748b;">Akurasi Sekuensial: {conf:.1f}%</small>
+                    </div>""", unsafe_allow_html=True)
 
-        # Tombol reset buffer
-        if st.button("🔄 Reset Buffer Frame", key="reset_kata"):
-            st.session_state.kata_frame_buffer = []
-            buffer_progress.empty()
-            kata_lbl.info("Buffer direset. Mulai capture ulang.")
+                    # Reset buffer setelah prediksi agar siklus baru dimulai
+                    st.session_state.kata_frame_buffer = []
+                elif video_model is None:
+                    kata_lbl.error("❌ Model video tidak tersedia.")
+                else:
+                    kata_lbl.warning("Menyelaraskan data sekuens... Pertahankan posisi tangan Anda di depan kamera.")
 
-        if cam_kata is None and not st.session_state.kata_frame_buffer:
-            kata_lbl.info("Aktifkan toggle di atas untuk mulai memproses data gestur berbasis waktu secara interaktif.")
+                st.query_params.clear()
+            except Exception as e:
+                kata_lbl.error(f"Error buffer frame: {e}")
+        else:
+            kata_lbl.info("Klik **▶ Mulai Rekam Kata** untuk memulai pengumpulan frame otomatis.")
