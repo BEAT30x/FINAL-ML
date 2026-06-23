@@ -145,64 +145,68 @@ st.markdown("""
 @st.cache_resource
 def load_models():
     try:
+        # Semua file ada di ROOT folder (sama dengan app.py)
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        search_paths = [BASE_DIR, os.path.join(BASE_DIR, "models")]
 
-        image_model      = None
-        video_model      = None
+        image_model       = None
+        video_model       = None
         image_class_names = None
         video_class_names = None
 
-        # Load image model
-        for fname in ["image_model.h5", "model_gambar.h5"]:
-            if image_model is not None:
-                break
-            for path in search_paths:
-                full = os.path.join(path, fname)
-                if os.path.exists(full):
-                    try:
-                        image_model = tf.keras.models.load_model(full)
-                        break
-                    except:
-                        continue
+        img_path  = os.path.join(BASE_DIR, "image_model.h5")
+        vid_path  = os.path.join(BASE_DIR, "video_model.h5")
+        ipkl_path = os.path.join(BASE_DIR, "image_class_names.pkl")
+        vpkl_path = os.path.join(BASE_DIR, "video_class_names.pkl")
 
-        # Load video model
-        for fname in ["video_model.h5"]:
-            if video_model is not None:
-                break
-            for path in search_paths:
-                full = os.path.join(path, fname)
-                if os.path.exists(full):
-                    try:
-                        video_model = tf.keras.models.load_model(full)
-                        break
-                    except:
-                        continue
+        # --- Cek file ada & ukurannya wajar (bukan pointer Git LFS) ---
+        def is_valid_h5(path):
+            if not os.path.exists(path):
+                return False, "File tidak ditemukan"
+            size_mb = os.path.getsize(path) / (1024 * 1024)
+            if size_mb < 0.1:
+                return False, f"File terlalu kecil ({size_mb:.2f} MB) — kemungkinan Git LFS pointer, bukan file asli"
+            return True, f"{size_mb:.1f} MB"
 
-        # Load class names
-        for fname in ["image_class_names.pkl", "video_class_names.pkl"]:
-            for path in search_paths:
-                full = os.path.join(path, fname)
-                if os.path.exists(full):
-                    try:
-                        with open(full, "rb") as f:
-                            if "image" in fname:
-                                image_class_names = pickle.load(f)
-                            else:
-                                video_class_names = pickle.load(f)
-                        break
-                    except:
-                        continue
+        img_valid, img_info = is_valid_h5(img_path)
+        vid_valid, vid_info = is_valid_h5(vid_path)
 
-        if image_class_names is None:
+        # --- Load image model ---
+        if img_valid:
+            try:
+                image_model = tf.keras.models.load_model(img_path)
+            except Exception as e:
+                st.error(f"❌ Gagal load image_model.h5 ({img_info}): {e}")
+        else:
+            st.error(f"❌ image_model.h5 — {img_info}")
+
+        # --- Load video model ---
+        if vid_valid:
+            try:
+                video_model = tf.keras.models.load_model(vid_path)
+            except Exception as e:
+                st.warning(f"⚠️ Gagal load video_model.h5 ({vid_info}): {e}")
+        else:
+            st.warning(f"⚠️ video_model.h5 — {vid_info}")
+
+        # --- Load class names ---
+        try:
+            with open(ipkl_path, "rb") as f:
+                image_class_names = pickle.load(f)
+        except Exception as e:
+            st.warning(f"⚠️ Gagal load image_class_names.pkl: {e}")
             image_class_names = [chr(65 + i) for i in range(26)]
-        if video_class_names is None:
+
+        try:
+            with open(vpkl_path, "rb") as f:
+                video_class_names = pickle.load(f)
+        except Exception as e:
+            st.warning(f"⚠️ Gagal load video_class_names.pkl: {e}")
             video_class_names = []
 
         return image_model, video_model, image_class_names, video_class_names
 
     except Exception as e:
-        st.error(f"❌ Error: {e}")
+        st.error(f"❌ Error tidak terduga: {e}")
         return None, None, None, None
 
 image_model, video_model, image_class_names, video_class_names = load_models()
