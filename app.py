@@ -117,12 +117,6 @@ st.markdown("""
         font-weight: 600;
     }
     
-    .video-stream-container img {
-        border-radius: 12px;
-        border: 1px solid #cbd5e1;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
-    }
-    
     .camera-container {
         border: 3px solid #4f46e5;
         border-radius: 15px;
@@ -180,33 +174,78 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# 3. LOAD CORE MODELS
+# 3. LOAD CORE MODELS - DENGAN FALLBACK PATH
 # ============================================
 @st.cache_resource
 def load_models():
     try:
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         
-        image_model_path = os.path.join(BASE_DIR, "image_model.h5")
-        video_model_path = os.path.join(BASE_DIR, "video_model.h5")
-        image_pkl_path = os.path.join(BASE_DIR, "image_class_names.pkl")
-        video_pkl_path = os.path.join(BASE_DIR, "video_class_names.pkl")
+        # ==========================================
+        # DAFTAR SEMUA KEMUNGKINAN PATH
+        # ==========================================
+        possible_paths = [
+            # Path di ROOT
+            {"image": os.path.join(BASE_DIR, "image_model.h5"),
+             "video": os.path.join(BASE_DIR, "video_model.h5"),
+             "image_pkl": os.path.join(BASE_DIR, "image_class_names.pkl"),
+             "video_pkl": os.path.join(BASE_DIR, "video_class_names.pkl")},
+            
+            # Path di folder models/
+            {"image": os.path.join(BASE_DIR, "models", "image_model.h5"),
+             "video": os.path.join(BASE_DIR, "models", "video_model.h5"),
+             "image_pkl": os.path.join(BASE_DIR, "models", "image_class_names.pkl"),
+             "video_pkl": os.path.join(BASE_DIR, "models", "video_class_names.pkl")},
+            
+            # Path di folder model/
+            {"image": os.path.join(BASE_DIR, "model", "image_model.h5"),
+             "video": os.path.join(BASE_DIR, "model", "video_model.h5"),
+             "image_pkl": os.path.join(BASE_DIR, "model", "image_class_names.pkl"),
+             "video_pkl": os.path.join(BASE_DIR, "model", "video_class_names.pkl")},
+        ]
         
-        if not os.path.exists(image_model_path):
-            image_model_path = os.path.join(BASE_DIR, "models", "image_model.h5")
-            video_model_path = os.path.join(BASE_DIR, "models", "video_model.h5")
-            image_pkl_path = os.path.join(BASE_DIR, "models", "image_class_names.pkl")
-            video_pkl_path = os.path.join(BASE_DIR, "models", "video_class_names.pkl")
+        image_model = None
+        video_model = None
+        image_class_names = None
+        video_class_names = None
         
-        image_model = tf.keras.models.load_model(image_model_path)
-        video_model = tf.keras.models.load_model(video_model_path)
+        for paths in possible_paths:
+            if os.path.exists(paths["image"]) and os.path.exists(paths["video"]):
+                try:
+                    image_model = tf.keras.models.load_model(paths["image"])
+                    video_model = tf.keras.models.load_model(paths["video"])
+                    
+                    with open(paths["image_pkl"], "rb") as f:
+                        image_class_names = pickle.load(f)
+                    with open(paths["video_pkl"], "rb") as f:
+                        video_class_names = pickle.load(f)
+                    
+                    st.success(f"✅ Model ditemukan di: {os.path.dirname(paths['image'])}")
+                    break
+                except Exception as e:
+                    st.warning(f"⚠️ Gagal load dari {os.path.dirname(paths['image'])}: {e}")
+                    continue
         
-        with open(image_pkl_path, "rb") as f:
-            image_class_names = pickle.load(f)
-        with open(video_pkl_path, "rb") as f:
-            video_class_names = pickle.load(f)
+        if image_model is None:
+            st.error("❌ Model tidak ditemukan di semua lokasi!")
+            st.info("📁 Pastikan file model ada di salah satu lokasi:")
+            st.code("""
+            📁 BISINDO_Deployment/
+            ├── app.py
+            ├── image_model.h5       ← Harus ada!
+            ├── video_model.h5       ← Harus ada!
+            ├── image_class_names.pkl
+            ├── video_class_names.pkl
+            └── models/              (opsional)
+                ├── image_model.h5
+                ├── video_model.h5
+                ├── image_class_names.pkl
+                └── video_class_names.pkl
+            """)
+            return None, None, None, None
         
         return image_model, video_model, image_class_names, video_class_names
+        
     except Exception as e:
         st.error(f"❌ Gagal memuat model: {e}")
         return None, None, None, None
@@ -281,9 +320,6 @@ def predict_live_kata(model, frame_list, class_names, img_size=96):
     pred_class = np.argmax(predictions[0])
     return class_names[pred_class], predictions[0][pred_class] * 100
 
-# ============================================
-# 5. FUNGSI PREDIKSI DARI BYTES
-# ============================================
 def predict_image_from_bytes(image_bytes, model, class_names):
     from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
     img = Image.open(io.BytesIO(image_bytes))
@@ -297,7 +333,7 @@ def predict_image_from_bytes(image_bytes, model, class_names):
     return class_names[pred_class], predictions[0][pred_class] * 100
 
 # ============================================
-# 6. HTML KAMERA BROWSER (ABJAD)
+# 5. HTML KAMERA BROWSER (ABJAD)
 # ============================================
 def camera_abjad_html():
     return """
@@ -425,7 +461,7 @@ def camera_abjad_html():
     """
 
 # ============================================
-# 7. HTML KAMERA BROWSER (KATA)
+# 6. HTML KAMERA BROWSER (KATA)
 # ============================================
 def camera_kata_html():
     return """
@@ -562,7 +598,7 @@ def camera_kata_html():
     """
 
 # ============================================
-# 8. SIDEBAR CONTROL PANEL
+# 7. SIDEBAR CONTROL PANEL
 # ============================================
 with st.sidebar:
     st.markdown("### 🛠️ System Control & Core Info")
@@ -575,7 +611,7 @@ with st.sidebar:
     st.caption("© 2026 BISINDO Neural Translator Network Pro Tier")
 
 # ============================================
-# 9. MAIN CONTROLLER
+# 8. MAIN CONTROLLER
 # ============================================
 if image_model is None or video_model is None:
     st.error("🚨 Master Model File (`.h5` / `.pkl`) tidak ditemukan!")
@@ -684,7 +720,7 @@ else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM CAMERA (ABJAD) - VIA BROWSER
+    # TAB 3: LIVE STREAM CAMERA (ABJAD)
     # ----------------------------------------------------------------
     with tab3:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera browser untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
@@ -697,7 +733,17 @@ else:
             lbl_placeholder = st.empty()
             conf_placeholder = st.empty()
             
-            # Tambahkan info
+            # Jika ada hasil di session state
+            if 'abjad_result' in st.session_state:
+                lbl_placeholder.markdown(f"""
+                <div class="kpi-box">
+                    <div class="kpi-title">Karakter Terbaca</div>
+                    <div class="kpi-value" style="color: #4f46e5;">{st.session_state.abjad_result}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                conf_placeholder.progress(float(st.session_state.abjad_confidence / 100), 
+                                         text=f"Tingkat Kepastian Akurasi: {st.session_state.abjad_confidence:.1f}%")
+            
             st.markdown("""
             <div style="background: #f0fdf4; padding: 1rem; border-radius: 10px; border: 1px solid #bbf7d0; margin-top: 1rem;">
                 <p style="margin: 0; font-size: 0.85rem;">
@@ -711,7 +757,7 @@ else:
             """, unsafe_allow_html=True)
 
     # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM CAMERA (KATA) - VIA BROWSER
+    # TAB 4: LIVE STREAM CAMERA (KATA)
     # ----------------------------------------------------------------
     with tab4:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinambungan.</p></div>', unsafe_allow_html=True)
@@ -722,6 +768,15 @@ else:
         with c2:
             st.markdown("##### 📊 ANALISIS BINGKAI TEMPORAL")
             kata_lbl = st.empty()
+            
+            if 'kata_result' in st.session_state:
+                kata_lbl.markdown(f"""
+                <div class="kpi-box" style="border-left-color: #10b981;">
+                    <div class="kpi-title">Terjemahan Frasa/Kata</div>
+                    <div class="kpi-value" style="color: #059669;">"{st.session_state.kata_result.upper()}"</div>
+                    <small style="color: #64748b;">Akurasi Sekuensial: {st.session_state.kata_confidence:.1f}%</small>
+                </div>
+                """, unsafe_allow_html=True)
             
             st.markdown("""
             <div style="background: #f0fdf4; padding: 1rem; border-radius: 10px; border: 1px solid #bbf7d0; margin-top: 1rem;">
@@ -736,7 +791,7 @@ else:
             """, unsafe_allow_html=True)
 
 # ============================================
-# 10. LISTENER UNTUK DATA DARI JAVASCRIPT
+# 9. LISTENER UNTUK DATA DARI JAVASCRIPT
 # ============================================
 
 # Proses data dari query params
@@ -756,28 +811,15 @@ if 'img' in query_params:
         if mode == 'abjad' and image_model is not None:
             label, confidence = predict_image_from_bytes(img_bytes, image_model, image_class_names)
             
-            # Kirim hasil ke JavaScript melalui sesi state
             st.session_state['abjad_result'] = label
             st.session_state['abjad_confidence'] = confidence
-            
-            st.success(f"🎯 Hasil: {label} ({confidence:.1f}%)")
-            
-            # Tampilkan di placeholder
-            st.markdown(f"""
-            <div class="kpi-box">
-                <div class="kpi-title">Karakter Terbaca</div>
-                <div class="kpi-value" style="color: #4f46e5;">{label}</div>
-                <div style="color: #166534; font-size: 0.9rem; font-weight: 500;">Tingkat Kepastian Akurasi: {confidence:.1f}%</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.rerun()
             
         elif mode == 'kata' and video_model is not None:
-            # Untuk kata, kita butuh beberapa frame
-            # Simpan ke buffer session
+            # Untuk kata, butuh beberapa frame
             if 'kata_buffer' not in st.session_state:
                 st.session_state.kata_buffer = []
             
-            # Tambahkan frame ke buffer
             st.session_state.kata_buffer.append(img_bytes)
             if len(st.session_state.kata_buffer) > 20:
                 st.session_state.kata_buffer = st.session_state.kata_buffer[-20:]
@@ -785,7 +827,6 @@ if 'img' in query_params:
             buffer_len = len(st.session_state.kata_buffer)
             
             if buffer_len >= 20:
-                # Proses semua frame
                 frames = []
                 for b in st.session_state.kata_buffer:
                     img = Image.open(io.BytesIO(b))
@@ -801,25 +842,13 @@ if 'img' in query_params:
                 
                 st.session_state['kata_result'] = label
                 st.session_state['kata_confidence'] = confidence
-                
-                st.success(f"🎯 Hasil Kata: {label} ({confidence:.1f}%)")
-                
-                st.markdown(f"""
-                <div class="kpi-box" style="border-left-color: #10b981;">
-                    <div class="kpi-title">Terjemahan Frasa/Kata</div>
-                    <div class="kpi-value" style="color: #059669;">"{label.upper()}"</div>
-                    <small style="color: #64748b;">Akurasi Sekuensial: {confidence:.1f}%</small>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Reset buffer setelah prediksi
                 st.session_state.kata_buffer = []
+                st.rerun()
             else:
                 st.info(f"⏳ Mengumpulkan frame... {buffer_len}/20")
         
         # Clear query params
         st.query_params.clear()
-        st.rerun()
         
     except Exception as e:
         print(f"Error: {e}")
