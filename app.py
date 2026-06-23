@@ -8,8 +8,6 @@ from PIL import Image
 import tempfile
 import time
 from collections import deque
-import base64
-import io
 
 # ============================================
 # 1. KONFIGURASI HALAMAN & TEMA UTAMA
@@ -21,6 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Tema UI/UX Profesional (Clean Minimalist & Enterprise Look)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -140,7 +139,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# 3. LOAD CORE MODELS - FIXED VERSION
+# 3. LOAD CORE MODELS
+# FIX: Cari model di root folder DAN folder models/
 # ============================================
 @st.cache_resource
 def load_models():
@@ -148,77 +148,62 @@ def load_models():
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         search_paths = [BASE_DIR, os.path.join(BASE_DIR, "models")]
 
-        image_names = ["image_model.h5", "model_gambar.h5"]
-        video_names = ["video_model.h5"]
-
-        image_model = None
-        video_model = None
+        image_model      = None
+        video_model      = None
         image_class_names = None
         video_class_names = None
 
-        # --- Load image model (FIX: pakai flag agar break keluar 2 loop) ---
-        for img_name in image_names:
+        # Load image model
+        for fname in ["image_model.h5", "model_gambar.h5"]:
             if image_model is not None:
                 break
             for path in search_paths:
-                img_path = os.path.join(path, img_name)
-                if os.path.exists(img_path):
+                full = os.path.join(path, fname)
+                if os.path.exists(full):
                     try:
-                        image_model = tf.keras.models.load_model(img_path)
+                        image_model = tf.keras.models.load_model(full)
                         break
-                    except Exception as e:
-                        st.warning(f"Gagal load {img_path}: {e}")
+                    except:
                         continue
 
-        # --- Load video model ---
-        for vid_name in video_names:
+        # Load video model
+        for fname in ["video_model.h5"]:
             if video_model is not None:
                 break
             for path in search_paths:
-                vid_path = os.path.join(path, vid_name)
-                if os.path.exists(vid_path):
+                full = os.path.join(path, fname)
+                if os.path.exists(full):
                     try:
-                        video_model = tf.keras.models.load_model(vid_path)
+                        video_model = tf.keras.models.load_model(full)
                         break
-                    except Exception as e:
-                        st.warning(f"Gagal load {vid_path}: {e}")
+                    except:
                         continue
 
-        # --- Load class names ---
-        for pkl_name in ["image_class_names.pkl", "video_class_names.pkl"]:
+        # Load class names
+        for fname in ["image_class_names.pkl", "video_class_names.pkl"]:
             for path in search_paths:
-                pkl_path = os.path.join(path, pkl_name)
-                if os.path.exists(pkl_path):
+                full = os.path.join(path, fname)
+                if os.path.exists(full):
                     try:
-                        with open(pkl_path, "rb") as f:
-                            if "image" in pkl_name:
+                        with open(full, "rb") as f:
+                            if "image" in fname:
                                 image_class_names = pickle.load(f)
                             else:
                                 video_class_names = pickle.load(f)
                         break
-                    except Exception as e:
-                        st.warning(f"Gagal load {pkl_path}: {e}")
+                    except:
                         continue
 
-        # --- Fallback class names ---
         if image_class_names is None:
             image_class_names = [chr(65 + i) for i in range(26)]
         if video_class_names is None:
             video_class_names = []
 
-        # --- Validasi akhir ---
-        if image_model is None:
-            st.error("❌ Model gambar tidak ditemukan!")
-            st.code(f"File di root folder:\n{os.listdir(BASE_DIR)}")
-            return None, None, None, None
-
-        st.success(f"✅ Model berhasil dimuat! {len(image_class_names)} kelas gambar | {len(video_class_names)} kelas video")
         return image_model, video_model, image_class_names, video_class_names
 
     except Exception as e:
-        st.error(f"❌ Error tidak terduga: {e}")
+        st.error(f"❌ Error: {e}")
         return None, None, None, None
-
 
 image_model, video_model, image_class_names, video_class_names = load_models()
 
@@ -233,12 +218,11 @@ def preprocess_image(image):
     img_array = np.expand_dims(img_array, axis=0)
     return img_array
 
-
 def preprocess_video(video_file, max_frames=20, img_size=96):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
         tmp_file.write(video_file.read())
         tmp_path = tmp_file.name
-
+    
     cap = cv2.VideoCapture(tmp_path)
     all_frames = []
     while True:
@@ -247,18 +231,15 @@ def preprocess_video(video_file, max_frames=20, img_size=96):
             break
         all_frames.append(frame)
     cap.release()
-
-    try:
-        os.remove(tmp_path)
-    except:
-        pass
-
+    
+    try: os.remove(tmp_path)
+    except: pass
+        
     total_frames = len(all_frames)
-    if total_frames == 0:
-        return None
-
+    if total_frames == 0: return None
+    
     frames = []
-    indices = np.linspace(0, total_frames - 1, max_frames, dtype=int)
+    indices = np.linspace(0, total_frames-1, max_frames, dtype=int)
     for idx in indices:
         if idx < total_frames:
             frame = all_frames[idx]
@@ -267,23 +248,19 @@ def preprocess_video(video_file, max_frames=20, img_size=96):
             frames.append(frame.astype(np.float32) / 255.0)
         else:
             frames.append(np.zeros((img_size, img_size, 3), dtype=np.float32))
-
+    
     return np.expand_dims(np.array(frames, dtype=np.float32), axis=0)
 
-
-def predict_from_browser_image(img_data):
-    try:
-        img_b64 = img_data.split(',')[1]
-        img_bytes = base64.b64decode(img_b64)
-        img = Image.open(io.BytesIO(img_bytes))
-        processed = preprocess_image(img)
-        probs = image_model.predict(processed, verbose=0)[0]
-        pred_idx = np.argmax(probs)
-        return image_class_names[pred_idx], float(probs[pred_idx] * 100)
-    except Exception as e:
-        st.error(f"Error prediksi: {e}")
-        return None, 0
-
+def predict_frame_gambar(model, pil_image, class_names):
+    """Prediksi dari PIL Image (untuk st.camera_input)"""
+    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+    img = pil_image.resize((224, 224))
+    img_array = np.array(img, dtype=np.float32)
+    img_array = preprocess_input(img_array)
+    img_array = np.expand_dims(img_array, axis=0)
+    predictions = model.predict(img_array, verbose=0)
+    pred_class = np.argmax(predictions[0])
+    return class_names[pred_class], predictions[0][pred_class] * 100
 
 def predict_live_kata(model, frame_list, class_names, img_size=96):
     frames = []
@@ -291,80 +268,14 @@ def predict_live_kata(model, frame_list, class_names, img_size=96):
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_resized = cv2.resize(frame_rgb, (img_size, img_size))
         frames.append(frame_resized.astype(np.float32) / 255.0)
-
+    
     video_array = np.expand_dims(np.array(frames, dtype=np.float32), axis=0)
     predictions = model.predict(video_array, verbose=0)
     pred_class = np.argmax(predictions[0])
-    return class_names[pred_class], float(predictions[0][pred_class] * 100)
-
-
-# ============================================
-# 5. BROWSER CAMERA HTML
-# FIX: Ganti st.components.v1.html → st.iframe tidak support JS,
-#      jadi tetap pakai html() tapi dengan peringatan sudah ditangani.
-#      Alternatif: gunakan st.camera_input() bawaan Streamlit untuk Tab 3.
-# ============================================
-def browser_camera_html():
-    return """
-    <div style="text-align: center; font-family: Inter, sans-serif;">
-        <video id="video" width="100%" height="auto" autoplay playsinline
-               style="max-height: 400px; background: #000; border-radius: 10px;"></video>
-        <br>
-        <button id="captureBtn"
-                style="background: #4f46e5; color: white; padding: 12px 30px;
-                       border: none; border-radius: 10px; font-size: 16px;
-                       cursor: pointer; margin-top: 10px;">
-            📸 Capture & Predict
-        </button>
-        <canvas id="canvas" style="display: none;"></canvas>
-        <div id="status" style="margin-top: 10px; font-weight: bold; color: #64748b;">
-            ⏸️ Menunggu kamera...
-        </div>
-    </div>
-    <script>
-        const video   = document.getElementById('video');
-        const canvas  = document.getElementById('canvas');
-        const ctx     = canvas.getContext('2d');
-        const statusDiv  = document.getElementById('status');
-        const captureBtn = document.getElementById('captureBtn');
-        let stream = null;
-
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
-            .then(mediaStream => {
-                stream = mediaStream;
-                video.srcObject = mediaStream;
-                video.play();
-                statusDiv.innerHTML = '🟢 Kamera siap!';
-                statusDiv.style.color = '#166534';
-            })
-            .catch(err => {
-                statusDiv.innerHTML = '❌ Kamera error: ' + err.message;
-                statusDiv.style.color = 'red';
-            });
-
-        captureBtn.addEventListener('click', function () {
-            if (!stream) {
-                statusDiv.innerHTML = '⚠️ Kamera belum siap!';
-                statusDiv.style.color = 'orange';
-                return;
-            }
-            canvas.width  = video.videoWidth  || 640;
-            canvas.height = video.videoHeight || 480;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-            const imageData  = canvas.toDataURL('image/jpeg', 0.8);
-            const currentUrl = window.location.href.split('?')[0];
-            window.location.href = currentUrl + '?img=' + encodeURIComponent(imageData) + '&t=' + Date.now();
-
-            statusDiv.innerHTML = '⏳ Memproses...';
-            statusDiv.style.color = '#4f46e5';
-        });
-    </script>
-    """
-
+    return class_names[pred_class], predictions[0][pred_class] * 100
 
 # ============================================
-# 6. SIDEBAR
+# 5. SIDEBAR CONTROL PANEL
 # ============================================
 with st.sidebar:
     st.markdown("### 🛠️ System Control & Core Info")
@@ -376,13 +287,12 @@ with st.sidebar:
     st.markdown("---")
     st.caption("© 2026 BISINDO Neural Translator Network Pro Tier")
 
-
 # ============================================
-# 7. MAIN CONTROLLER
+# 6. MAIN CONTROLLER
 # ============================================
 if image_model is None:
-    st.error("🚨 Master Model File tidak ditemukan!")
-    st.info("📁 Pastikan file `image_model.h5` ada di ROOT folder repository.")
+    st.error("🚨 Master Model File (`.h5` / `.pkl`) tidak ditemukan.")
+    st.info("📁 Pastikan `image_model.h5` dan file pkl ada di root folder atau folder `models/`.")
 else:
     tab1, tab2, tab3, tab4 = st.tabs([
         "📂 Unggah Citra (Abjad)",
@@ -392,24 +302,18 @@ else:
     ])
 
     # ----------------------------------------------------------------
-    # TAB 1: IMAGE UPLOADER
+    # TAB 1: ASSET IMAGE UPLOADER
     # ----------------------------------------------------------------
     with tab1:
-        st.markdown('<div class="pro-card"><h3>Analisis File Gambar Statis</h3>'
-                    '<p>Sistem akan memindai kontur geometris tangan dari berkas gambar yang diunggah.</p></div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="pro-card"><h3>Analisis File Gambar Statis</h3><p>Sistem akan memindai kontur geometris tangan dari berkas gambar yang diunggah.</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns([1, 1], gap="medium")
-
+        
         with col1:
-            uploaded_img = st.file_uploader(
-                "Unggah berkas gambar (JPG, PNG)",
-                type=["jpg", "jpeg", "png"],
-                key="img_pro"
-            )
+            uploaded_img = st.file_uploader("Unggah berkas gambar (JPG, PNG)", type=["jpg", "jpeg", "png"], key="img_pro")
             if uploaded_img:
                 image = Image.open(uploaded_img)
                 st.image(image, caption="Preview Asset", use_container_width=True)
-
+        
         with col2:
             if uploaded_img:
                 if st.button("Jalankan Inferensi Gambar", type="primary", use_container_width=True):
@@ -417,19 +321,18 @@ else:
                         processed = preprocess_image(image)
                         probs = image_model.predict(processed, verbose=0)[0]
                         pred_idx = np.argmax(probs)
-
-                        label      = image_class_names[pred_idx]
+                        
+                        label = image_class_names[pred_idx]
                         confidence = probs[pred_idx] * 100
-
+                        
                         st.markdown(f"""
                         <div class="kpi-box">
                             <div class="kpi-title">Hasil Klasifikasi Dominan</div>
                             <div class="kpi-value">Abjad: {label}</div>
-                            <div style="color:#166534;font-size:0.9rem;font-weight:500;">
-                                Tingkat Kepercayaan: {confidence:.2f}%
-                            </div>
-                        </div>""", unsafe_allow_html=True)
-
+                            <div style="color: #166534; font-size: 0.9rem; font-weight: 500;">Tingkat Kepercayaan: {confidence:.2f}%</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
                         st.markdown("<br><b>Distribusi Keyakinan Model:</b>", unsafe_allow_html=True)
                         top5 = np.argsort(probs)[-5:][::-1]
                         for idx in top5:
@@ -439,46 +342,40 @@ else:
                 st.info("💡 Hubungkan dokumen gambar di panel kiri untuk mengaktifkan kalkulasi model.")
 
     # ----------------------------------------------------------------
-    # TAB 2: VIDEO UPLOADER
+    # TAB 2: ASSET VIDEO UPLOADER
     # ----------------------------------------------------------------
     with tab2:
-        st.markdown('<div class="pro-card"><h3>Analisis Rekaman Video Isyarat</h3>'
-                    '<p>Ekstraksi otomatis untuk mengidentifikasi klasifikasi kata dinamis.</p></div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="pro-card"><h3>Analisis Rekaman Video Isyarat</h3><p>Ekstraksi otomatis untuk mengidentifikasi klasifikasi kata dinamis.</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns([1, 1], gap="medium")
-
+        
         with col1:
-            uploaded_vid = st.file_uploader(
-                "Unggah rekaman video (MP4, MOV)",
-                type=["mp4", "mov"],
-                key="vid_pro"
-            )
+            uploaded_vid = st.file_uploader("Unggah rekaman video (MP4, MOV)", type=["mp4", "mov"], key="vid_pro")
             if uploaded_vid:
                 st.video(uploaded_vid)
-
+        
         with col2:
             if uploaded_vid:
                 if st.button("Jalankan Inferensi Video", type="primary", use_container_width=True):
                     if video_model is None:
-                        st.error("❌ Model video (video_model.h5) tidak ditemukan di repository.")
+                        st.error("❌ Model video tidak ditemukan di repository.")
                     else:
                         with st.spinner("Memproses urutan struktur temporal video..."):
                             processed_vid = preprocess_video(uploaded_vid)
                             if processed_vid is not None:
-                                probs     = video_model.predict(processed_vid, verbose=0)[0]
-                                pred_idx  = np.argmax(probs)
-                                label     = video_class_names[pred_idx] if video_class_names else f"Kelas {pred_idx}"
+                                probs = video_model.predict(processed_vid, verbose=0)[0]
+                                pred_idx = np.argmax(probs)
+                                
+                                label = video_class_names[pred_idx] if video_class_names else f"Kelas {pred_idx}"
                                 confidence = probs[pred_idx] * 100
-
+                                
                                 st.markdown(f"""
                                 <div class="kpi-box">
                                     <div class="kpi-title">Kata Isyarat Terjemahan</div>
                                     <div class="kpi-value">"{label.upper()}"</div>
-                                    <div style="color:#166534;font-size:0.9rem;font-weight:500;">
-                                        Tingkat Konfidensi Sekuensial: {confidence:.2f}%
-                                    </div>
-                                </div>""", unsafe_allow_html=True)
-
+                                    <div style="color: #166534; font-size: 0.9rem; font-weight: 500;">Tingkat Konfidensi Sekuensial: {confidence:.2f}%</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
                                 st.markdown("<br><b>Top Estimasi Alternatif:</b>", unsafe_allow_html=True)
                                 top5_vid = np.argsort(probs)[-5:][::-1]
                                 for idx in top5_vid:
@@ -491,150 +388,93 @@ else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM (ABJAD)
-    # FIX: Gunakan st.camera_input() bawaan Streamlit sebagai primary,
-    #      browser HTML sebagai fallback alternatif.
+    # TAB 3: LIVE STREAM CAMERA (ABJAD)
+    # FIX: Ganti cv2.VideoCapture(0) → st.camera_input() agar bisa jalan di cloud
     # ----------------------------------------------------------------
     with tab3:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3>'
-                    '<p>Ambil foto dari kamera untuk menerjemahkan abjad secara instan.</p></div>',
-                    unsafe_allow_html=True)
-
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
+        
         c1, c2 = st.columns([2, 1], gap="medium")
-
         with c1:
-            # Opsi 1 (Direkomendasikan): st.camera_input() — native Streamlit, tidak deprecated
-            use_native_cam = st.toggle("Gunakan Camera Input Bawaan (Direkomendasikan)", value=True, key="native_cam_toggle")
-
-            if use_native_cam:
-                cam_photo = st.camera_input("Ambil foto isyarat tangan")
-            else:
-                # Opsi 2: Browser HTML camera (legacy)
-                st.warning("⚠️ Mode HTML camera menggunakan komponen yang akan deprecated. "
-                           "Gunakan mode bawaan di atas jika memungkinkan.")
-                st.components.v1.html(browser_camera_html(), height=520)
-                cam_photo = None
-
+            # st.camera_input bekerja di browser — tidak butuh webcam server
+            cam_photo = st.camera_input("📷 Arahkan tangan ke kamera, lalu klik tombol capture", key="cam_abjad")
         with c2:
             st.markdown("##### 📊 LOG PREDIKSI SISTEM")
             lbl_placeholder  = st.empty()
             conf_placeholder = st.empty()
-
-            # Proses dari st.camera_input
-            if use_native_cam and 'cam_photo' in dir() and cam_photo is not None:
-                try:
-                    img = Image.open(cam_photo)
-                    processed = preprocess_image(img)
-                    probs     = image_model.predict(processed, verbose=0)[0]
-                    pred_idx  = np.argmax(probs)
-                    label     = image_class_names[pred_idx]
-                    conf      = float(probs[pred_idx] * 100)
-
-                    lbl_placeholder.markdown(f"""
-                    <div class="kpi-box">
-                        <div class="kpi-title">Karakter Terbaca</div>
-                        <div class="kpi-value" style="color:#4f46e5;">{label}</div>
-                    </div>""", unsafe_allow_html=True)
-                    conf_placeholder.progress(conf / 100, text=f"Tingkat Kepastian: {conf:.1f}%")
-                except Exception as e:
-                    st.error(f"Error prediksi: {e}")
-
-            # Proses dari browser HTML camera (query params)
-            query_params = st.query_params
-            if not use_native_cam and 'img' in query_params:
-                try:
-                    img_data = query_params['img']
-                    label, conf = predict_from_browser_image(img_data)
-                    if label:
-                        lbl_placeholder.markdown(f"""
-                        <div class="kpi-box">
-                            <div class="kpi-title">Karakter Terbaca</div>
-                            <div class="kpi-value" style="color:#4f46e5;">{label}</div>
-                        </div>""", unsafe_allow_html=True)
-                        conf_placeholder.progress(conf / 100, text=f"Tingkat Kepastian: {conf:.1f}%")
-                    st.query_params.clear()
-                except Exception as e:
-                    st.error(f"Error memproses gambar: {e}")
-
-            if not use_native_cam and 'img' not in query_params:
-                lbl_placeholder.info("Klik 'Capture & Predict' pada kamera di sebelah kiri.")
+            
+        if cam_photo is not None:
+            img = Image.open(cam_photo)
+            label, conf = predict_frame_gambar(image_model, img, image_class_names)
+            
+            lbl_placeholder.markdown(f"""
+            <div class="kpi-box">
+                <div class="kpi-title">Karakter Terbaca</div>
+                <div class="kpi-value" style="color: #4f46e5;">{label}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            conf_placeholder.progress(float(conf / 100), text=f"Tingkat Kepastian Akurasi: {conf:.1f}%")
+        else:
+            lbl_placeholder.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
 
     # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM (KATA) — dengan deteksi cloud environment
-    # FIX: Streamlit Cloud tidak punya webcam fisik (/dev/video0 tidak ada).
-    #      Tampilkan peringatan informatif dan fallback ke upload video.
+    # TAB 4: LIVE STREAM CAMERA (KATA)
+    # FIX: Kumpulkan frame dari st.camera_input berulang kali (buffer manual)
+    #      agar kompatibel dengan Streamlit Cloud tanpa cv2.VideoCapture(0)
     # ----------------------------------------------------------------
     with tab4:
-        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3>'
-                    '<p>Model mengumpulkan 20 frame secara berkesinambungan untuk klasifikasi kata.</p></div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinambungan.</p></div>', unsafe_allow_html=True)
+        
+        c1, c2 = st.columns([2, 1], gap="medium")
+        with c1:
+            st.info("📸 Ambil foto berulang sebanyak 20x untuk membangun buffer sekuensial kata isyarat.")
+            cam_kata = st.camera_input("📷 Capture frame isyarat tangan", key="cam_kata")
+        with c2:
+            st.markdown("##### 📊 ANALISIS BINGKAI TEMPORAL")
+            buffer_progress = st.empty()
+            kata_lbl        = st.empty()
 
-        # Cek apakah kamera tersedia di environment ini
-        def check_camera_available():
-            cap = cv2.VideoCapture(0)
-            available = cap.isOpened()
-            cap.release()
-            return available
+        # Simpan buffer frame di session_state
+        if "kata_frame_buffer" not in st.session_state:
+            st.session_state.kata_frame_buffer = []
 
-        camera_available = check_camera_available()
+        if cam_kata is not None:
+            img_kata = Image.open(cam_kata).resize((96, 96))
+            frame_arr = np.array(img_kata, dtype=np.float32) / 255.0
 
-        if not camera_available:
-            st.warning(
-                "⚠️ **Kamera fisik tidak tersedia di environment ini** (Streamlit Cloud tidak memiliki webcam).\n\n"
-                "Fitur Live Stream Kata membutuhkan akses kamera langsung (`/dev/video0`). "
-                "Untuk menggunakan fitur ini, jalankan aplikasi secara **lokal** di komputer Anda:\n"
-                "```\nstreamlit run app.py\n```\n\n"
-                "**Alternatif:** Gunakan Tab 'Unggah Video' untuk menguji klasifikasi kata via file video."
-            )
-            st.info("💡 Tip: Tab 2 (Unggah Video) mendukung file MP4/MOV dan tidak memerlukan kamera fisik.")
-        else:
-            c1, c2 = st.columns([2, 1], gap="medium")
-            with c1:
-                run_kata = st.toggle("Aktifkan Jalur Kamera Kata", key="tg_kata")
-                frame_window_kata = st.empty()
-            with c2:
-                st.markdown("##### 📊 ANALISIS BINGKAI TEMPORAL")
-                buffer_progress = st.empty()
-                kata_lbl        = st.empty()
+            # Tambah ke buffer, maksimal 20 frame
+            st.session_state.kata_frame_buffer.append(frame_arr)
+            if len(st.session_state.kata_frame_buffer) > 20:
+                st.session_state.kata_frame_buffer.pop(0)
 
-            if run_kata:
-                cap      = cv2.VideoCapture(0)
-                live_buf = deque(maxlen=20)
+            current_len = len(st.session_state.kata_frame_buffer)
+            buffer_progress.progress(float(current_len / 20), text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed")
 
-                if not cap.isOpened():
-                    st.error("Gagal memuat sensor kamera aktif.")
-                else:
-                    while run_kata:
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
+            if current_len == 20 and video_model is not None and video_class_names:
+                frames_np  = np.array(st.session_state.kata_frame_buffer, dtype=np.float32)
+                video_arr  = np.expand_dims(frames_np, axis=0)
+                predictions = video_model.predict(video_arr, verbose=0)
+                pred_class  = np.argmax(predictions[0])
+                label       = video_class_names[pred_class]
+                conf        = float(predictions[0][pred_class] * 100)
 
-                        frame = cv2.flip(frame, 1)
-                        live_buf.append(frame)
-
-                        current_len = len(live_buf)
-                        buffer_progress.progress(
-                            float(current_len / 20),
-                            text=f"Stabilitas Buffer Isyarat: {current_len}/20 Frames Packed"
-                        )
-
-                        if current_len == 20 and video_model is not None and video_class_names:
-                            label, conf = predict_live_kata(video_model, list(live_buf), video_class_names)
-                            kata_lbl.markdown(f"""
-                            <div class="kpi-box" style="border-left-color: #10b981;">
-                                <div class="kpi-title">Terjemahan Frasa/Kata</div>
-                                <div class="kpi-value" style="color:#059669;">"{label.upper()}"</div>
-                                <small style="color:#64748b;">Akurasi Sekuensial: {conf:.1f}%</small>
-                            </div>""", unsafe_allow_html=True)
-                        elif video_model is None:
-                            kata_lbl.error("Model video tidak tersedia.")
-                        else:
-                            kata_lbl.warning("Menyelaraskan data sekuens... Pertahankan posisi tangan Anda.")
-
-                        frame_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        frame_window_kata.image(frame_disp, channels="RGB", use_container_width=True)
-                        time.sleep(0.03)
-
-                    cap.release()
+                kata_lbl.markdown(f"""
+                <div class="kpi-box" style="border-left-color: #10b981;">
+                    <div class="kpi-title">Terjemahan Frasa/Kata</div>
+                    <div class="kpi-value" style="color: #059669;">"{label.upper()}"</div>
+                    <small style="color: #64748b;">Akurasi Sekuensial: {conf:.1f}%</small>
+                </div>
+                """, unsafe_allow_html=True)
+            elif video_model is None:
+                kata_lbl.error("❌ Model video tidak tersedia.")
             else:
-                st.info("Aktifkan toggle di atas untuk mulai memproses data gestur berbasis waktu secara interaktif.")
+                kata_lbl.warning("Menyelaraskan data sekuens... Pertahankan posisi tangan Anda di depan kamera.")
+
+        # Tombol reset buffer
+        if st.button("🔄 Reset Buffer Frame", key="reset_kata"):
+            st.session_state.kata_frame_buffer = []
+            buffer_progress.empty()
+            kata_lbl.info("Buffer direset. Mulai capture ulang.")
+
+        if cam_kata is None and not st.session_state.kata_frame_buffer:
+            kata_lbl.info("Aktifkan toggle di atas untuk mulai memproses data gestur berbasis waktu secara interaktif.")
