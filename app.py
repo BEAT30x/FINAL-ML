@@ -380,12 +380,12 @@ else:
                                 st.text(f"Kata ({video_class_names[idx]}): {probs[idx]*100:.1f}%")
                                 st.progress(float(probs[idx]))
                         else:
-                            st.error("Gagal mengurai susunan berkas视频.")
+                            st.error("Gagal mengurai susunan berkas video.")
             else:
                 st.info("💡 Unggah berkas cuplikan rekaman video kata isyarat untuk memulai penafsiran.")
 
     # ----------------------------------------------------------------
-    # TAB 3: LIVE STREAM CAMERA (ABJAD) - DIPERBAIKI
+    # TAB 3: LIVE STREAM CAMERA (ABJAD) - DENGAN FALLBACK KAMERA
     # ----------------------------------------------------------------
     with tab3:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Abjad</h3><p>Gunakan kamera untuk menerjemahkan abjad secara instan.</p></div>', unsafe_allow_html=True)
@@ -400,25 +400,51 @@ else:
             conf_placeholder = st.empty()
             
         if run_abjad:
-            # COBA BEBERAPA INDEX KAMERA
+            # ==========================================
+            # FALLBACK KAMERA - COBA BERBAGAI INDEX
+            # ==========================================
             cap = None
-            for i in range(3):  # Coba index 0, 1, 2
-                cap = cv2.VideoCapture(i)
-                if cap.isOpened():
-                    break
-                else:
+            
+            # Coba index 0 (biasanya webcam utama)
+            if cap is None:
+                cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
                     cap.release()
                     cap = None
+            
+            # Coba index 1 (kamera kedua / virtual)
+            if cap is None:
+                cap = cv2.VideoCapture(1)
+                if not cap.isOpened():
+                    cap.release()
+                    cap = None
+            
+            # Coba index -1 (auto detect)
+            if cap is None:
+                cap = cv2.VideoCapture(-1)
+                if not cap.isOpened():
+                    cap.release()
+                    cap = None
+            
+            # Coba API backend lain (MSMF, V4L2, etc)
+            if cap is None:
+                for api in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_V4L2, cv2.CAP_ANY]:
+                    cap = cv2.VideoCapture(0, api)
+                    if cap.isOpened():
+                        break
+                    else:
+                        cap.release()
+                        cap = None
             
             if cap is None:
                 st.error("Sistem gagal terhubung ke perangkat keras Kamera.")
                 st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
+                st.info("💡 Coba gunakan TAB 'Unggah Citra (Abjad)' sebagai alternatif.")
             else:
+                st.success("✅ Kamera berhasil terhubung!")
                 while run_abjad:
                     ret, frame = cap.read()
-                    if not ret: 
-                        st.warning("Kamera terputus, mencoba reconnect...")
-                        break
+                    if not ret: break
                     
                     frame = cv2.flip(frame, 1)
                     label, conf = predict_frame_gambar(image_model, frame, image_class_names)
@@ -441,7 +467,7 @@ else:
             frame_window.info("Toggle sakelar di atas untuk mengaktifkan modul jepretan kamera real-time.")
 
     # ----------------------------------------------------------------
-    # TAB 4: LIVE STREAM CAMERA (KATA) - DIPERBAIKI
+    # TAB 4: LIVE STREAM CAMERA (KATA) - DENGAN FALLBACK KAMERA
     # ----------------------------------------------------------------
     with tab4:
         st.markdown('<div class="pro-card"><h3>Live Tracking Model: Kata (Sistem Sekuensial)</h3><p>Model mengumpulkan 20 runtunan bingkai gambar secara berkesinambungan.</p></div>', unsafe_allow_html=True)
@@ -456,27 +482,53 @@ else:
             kata_lbl = st.empty()
             
         if run_kata:
-            # COBA BEBERAPA INDEX KAMERA
+            # ==========================================
+            # FALLBACK KAMERA - COBA BERBAGAI INDEX
+            # ==========================================
             cap = None
-            for i in range(3):  # Coba index 0, 1, 2
-                cap = cv2.VideoCapture(i)
-                if cap.isOpened():
-                    break
-                else:
+            
+            # Coba index 0 (biasanya webcam utama)
+            if cap is None:
+                cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
                     cap.release()
                     cap = None
+            
+            # Coba index 1 (kamera kedua / virtual)
+            if cap is None:
+                cap = cv2.VideoCapture(1)
+                if not cap.isOpened():
+                    cap.release()
+                    cap = None
+            
+            # Coba index -1 (auto detect)
+            if cap is None:
+                cap = cv2.VideoCapture(-1)
+                if not cap.isOpened():
+                    cap.release()
+                    cap = None
+            
+            # Coba API backend lain (MSMF, V4L2, etc)
+            if cap is None:
+                for api in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_V4L2, cv2.CAP_ANY]:
+                    cap = cv2.VideoCapture(0, api)
+                    if cap.isOpened():
+                        break
+                    else:
+                        cap.release()
+                        cap = None
             
             if cap is None:
                 st.error("Gagal memuat sensor kamera aktif.")
                 st.info("💡 Pastikan kamera terhubung dan izinkan akses kamera di browser.")
+                st.info("💡 Coba gunakan TAB 'Unggah Video (Kata)' sebagai alternatif.")
             else:
+                st.success("✅ Kamera berhasil terhubung!")
                 live_buf = deque(maxlen=20)
                 
                 while run_kata:
                     ret, frame = cap.read()
-                    if not ret:
-                        st.warning("Kamera terputus, mencoba reconnect...")
-                        break
+                    if not ret: break
                     
                     frame = cv2.flip(frame, 1)
                     live_buf.append(frame)
