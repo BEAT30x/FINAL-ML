@@ -1,6 +1,7 @@
 """
 ====================================================================
-BISINDO - Deteksi Gestur dengan Kamera (WORKING VERSION)
+BISINDO - DETEKSI GESTUR REAL-TIME
+Hasil langsung muncul saat gestur di depan kamera
 ====================================================================
 """
 
@@ -54,8 +55,8 @@ st.markdown("""
         border-radius: 15px;
         color: white;
         text-align: center;
-        margin-top: 1rem;
         animation: fadeIn 0.3s ease-in-out;
+        margin-top: 1rem;
     }
     .result-box h2 {
         font-size: 3rem;
@@ -74,6 +75,38 @@ st.markdown("""
         border-radius: 15px;
         overflow: hidden;
         background: #000;
+        position: relative;
+    }
+    .overlay-label {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.8);
+        color: #00ff00;
+        padding: 8px 25px;
+        border-radius: 25px;
+        font-size: 18px;
+        font-weight: bold;
+        z-index: 10;
+        border: 2px solid rgba(0,255,0,0.3);
+        text-align: center;
+        width: 80%;
+        max-width: 400px;
+    }
+    .live-dot {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        background: #ff0000;
+        border-radius: 50%;
+        animation: pulse 1s infinite;
+        margin-right: 8px;
+    }
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.3; }
+        100% { opacity: 1; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -90,7 +123,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# LOAD MODEL - PATH DI ROOT (BENAR)
+# LOAD MODEL
 # ============================================
 
 @st.cache_resource
@@ -98,15 +131,8 @@ def load_models():
     try:
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-        # ==========================================
-        # MODEL ADA DI ROOT FOLDER
-        # ==========================================
         image_model = tf.keras.models.load_model(
             os.path.join(BASE_DIR, "image_model.h5")
-        )
-
-        video_model = tf.keras.models.load_model(
-            os.path.join(BASE_DIR, "video_model.h5")
         )
 
         with open(
@@ -115,33 +141,23 @@ def load_models():
         ) as f:
             image_class_names = pickle.load(f)
 
-        with open(
-            os.path.join(BASE_DIR, "video_class_names.pkl"),
-            "rb"
-        ) as f:
-            video_class_names = pickle.load(f)
-
-        return (
-            image_model,
-            video_model,
-            image_class_names,
-            video_class_names
-        )
+        return image_model, image_class_names
 
     except Exception as e:
         st.error(f"❌ Gagal memuat model: {e}")
-        return None, None, None, None
+        return None, None
 
 # ============================================
-# FUNGSI PREDIKSI GAMBAR
+# FUNGSI PREDIKSI
 # ============================================
 
-def predict_image(image, model, class_names):
-    """Prediksi gambar dengan preprocessing MobileNetV2"""
+def predict_image_from_bytes(image_bytes, model, class_names):
+    """Prediksi dari bytes image"""
     from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
     
-    image = image.resize((224, 224))
-    img_array = np.array(image, dtype=np.float32)
+    img = Image.open(io.BytesIO(image_bytes))
+    img = img.resize((224, 224))
+    img_array = np.array(img, dtype=np.float32)
     img_array = preprocess_input(img_array)
     img_array = np.expand_dims(img_array, axis=0)
     
@@ -149,38 +165,40 @@ def predict_image(image, model, class_names):
     pred_class = np.argmax(predictions[0])
     confidence = np.max(predictions[0]) * 100
     
-    return class_names[pred_class], confidence, predictions[0]
+    return class_names[pred_class], confidence
 
 # ============================================
-# HTML KAMERA
+# HTML KAMERA - AUTO DETECT
 # ============================================
 
-def camera_html():
+def camera_auto_html():
+    """HTML dengan auto-capture setiap 500ms"""
     return """
     <div style="text-align: center; margin: 10px 0;">
-        <div class="camera-container">
+        <div class="camera-container" style="position: relative;">
             <video id="video" width="100%" height="auto" autoplay style="max-height: 400px; background: #000;"></video>
+            <div id="overlayLabel" class="overlay-label" style="color: #ffcc00;">
+                🔄 Menunggu gestur...
+            </div>
         </div>
         <br>
         <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
             <button id="startBtn" style="background: #28a745; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-                ▶️ Start Camera
+                <span class="live-dot" style="display:inline-block; width:10px; height:10px; background:white; border-radius:50%; margin-right:5px;"></span>
+                ▶️ Start Auto-Detect
             </button>
             <button id="stopBtn" style="background: #dc3545; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
                 ⏹️ Stop
             </button>
-            <button id="captureBtn" style="background: #667eea; color: white; padding: 12px 30px; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold;">
-                📸 Capture
-            </button>
         </div>
         <br>
-        <div id="status" style="font-size: 16px; font-weight: bold; color: #6c757d; min-height: 30px;">
-            ⏸️ Klik Start untuk mengaktifkan kamera
+        <div id="status" style="font-size: 14px; font-weight: bold; color: #6c757d; min-height: 25px;">
+            ⏸️ Klik Start untuk deteksi otomatis
         </div>
-        <div id="resultPreview" style="font-size: 28px; font-weight: bold; min-height: 60px; padding: 15px; background: #f8f9fa; border-radius: 15px; margin-top: 10px; border: 2px solid #ddd;">
-            🎯 Hasil akan muncul di sini
+        <div id="resultDisplay" style="font-size: 32px; font-weight: bold; min-height: 60px; padding: 15px; background: #f8f9fa; border-radius: 15px; margin-top: 10px; border: 2px solid #ddd;">
+            <span style="color: #6c757d;">🎯 Hasil akan muncul di sini</span>
         </div>
-        <div id="confidencePreview" style="font-size: 18px; color: #28a745; margin-top: 5px;">
+        <div id="confidenceDisplay" style="font-size: 18px; margin-top: 5px; color: #28a745;">
             Confidence: 0%
         </div>
         <canvas id="canvas" style="display: none;"></canvas>
@@ -191,54 +209,59 @@ def camera_html():
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const statusDiv = document.getElementById('status');
-        const resultPreview = document.getElementById('resultPreview');
-        const confidencePreview = document.getElementById('confidencePreview');
+        const resultDisplay = document.getElementById('resultDisplay');
+        const confidenceDisplay = document.getElementById('confidenceDisplay');
+        const overlayLabel = document.getElementById('overlayLabel');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const captureBtn = document.getElementById('captureBtn');
         
         let stream = null;
         let isRunning = false;
         let intervalId = null;
         
+        // Fungsi update UI
         function updateUI(label, confidence) {
-            if (label && confidence > 0) {
-                resultPreview.innerHTML = `<span style="color: #333;">🎯 <b>${label}</b></span>`;
-                confidencePreview.textContent = `Confidence: ${confidence.toFixed(1)}%`;
-                confidencePreview.style.color = confidence > 80 ? '#28a745' : confidence > 50 ? '#ffc107' : '#dc3545';
-                statusDiv.textContent = `✅ Detected: ${label} (${confidence.toFixed(1)}%)`;
+            const labelText = label || 'Menunggu...';
+            const confText = confidence || 0;
+            
+            // Update result display
+            resultDisplay.innerHTML = `<span style="color: ${confText > 70 ? '#28a745' : confText > 40 ? '#ffc107' : '#dc3545'};">🎯 <b>${labelText}</b></span>`;
+            confidenceDisplay.textContent = `Confidence: ${confText.toFixed(1)}%`;
+            confidenceDisplay.style.color = confText > 70 ? '#28a745' : confText > 40 ? '#ffc107' : '#dc3545';
+            
+            // Update overlay
+            overlayLabel.textContent = `🎯 ${labelText} (${confText.toFixed(1)}%)`;
+            overlayLabel.style.color = confText > 70 ? '#00ff00' : confText > 40 ? '#ffcc00' : '#ff6b6b';
+            
+            // Update status
+            if (label && confText > 0) {
+                statusDiv.textContent = `✅ Detected: ${labelText}`;
                 statusDiv.style.color = '#28a745';
             }
         }
         
-        function sendToStreamlit(imageData) {
-            const data = {
-                type: 'camera_frame',
-                image: imageData
-            };
-            window.parent.postMessage(data, '*');
-            statusDiv.textContent = '⏳ Memproses...';
-            statusDiv.style.color = '#667eea';
-        }
-        
-        function captureFrame() {
-            if (!isRunning) {
-                statusDiv.textContent = '⚠️ Start camera dulu!';
-                statusDiv.style.color = 'orange';
-                return;
-            }
+        // Kirim frame ke Streamlit
+        function sendFrame() {
+            if (!isRunning) return;
             
             canvas.width = video.videoWidth || 640;
             canvas.height = video.videoHeight || 480;
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
-            sendToStreamlit(imageData);
+            const imageData = canvas.toDataURL('image/jpeg', 0.7);
+            
+            // Kirim ke Streamlit via URL
+            const currentUrl = window.location.href.split('?')[0];
+            window.location.href = currentUrl + '?img=' + encodeURIComponent(imageData) + '&t=' + Date.now();
+            
+            statusDiv.textContent = '⏳ Memproses...';
+            statusDiv.style.color = '#667eea';
         }
         
+        // Start camera
         function startCamera() {
             if (isRunning) {
-                statusDiv.textContent = '⚠️ Camera sudah berjalan!';
+                statusDiv.textContent = '⚠️ Already running!';
                 statusDiv.style.color = 'orange';
                 return;
             }
@@ -251,18 +274,31 @@ def camera_html():
                 video.srcObject = mediaStream;
                 video.play();
                 isRunning = true;
-                statusDiv.textContent = '🟢 Camera running...';
+                
+                statusDiv.textContent = '🟢 Auto-detection running...';
                 statusDiv.style.color = '#28a745';
-                startBtn.disabled = true;
+                overlayLabel.textContent = '🔄 Mendeteksi...';
+                overlayLabel.style.color = '#ffcc00';
+                resultDisplay.innerHTML = '<span style="color: #667eea;">⏳ Mendeteksi gestur...</span>';
+                
+                startBtn.textContent = '🔄 Running...';
                 startBtn.style.opacity = '0.6';
+                startBtn.disabled = true;
+                
+                // Auto capture every 500ms
+                if (intervalId) clearInterval(intervalId);
+                intervalId = setInterval(sendFrame, 500);
             })
             .catch(err => {
                 statusDiv.textContent = '❌ Error: ' + err.message;
                 statusDiv.style.color = 'red';
+                overlayLabel.textContent = '❌ Camera Error';
+                overlayLabel.style.color = 'red';
                 console.error('Camera error:', err);
             });
         }
         
+        // Stop camera
         function stopCamera() {
             if (intervalId) {
                 clearInterval(intervalId);
@@ -276,37 +312,45 @@ def camera_html():
                 video.srcObject = null;
             }
             isRunning = false;
-            startBtn.disabled = false;
+            
+            startBtn.textContent = '▶️ Start Auto-Detect';
             startBtn.style.opacity = '1';
+            startBtn.disabled = false;
+            
             statusDiv.textContent = '⏸️ Stopped';
             statusDiv.style.color = '#6c757d';
+            overlayLabel.textContent = '⏸️ Stopped';
+            overlayLabel.style.color = '#ffffff';
         }
         
+        // Event listeners
         startBtn.addEventListener('click', startCamera);
         stopBtn.addEventListener('click', stopCamera);
-        captureBtn.addEventListener('click', captureFrame);
         
+        // Keyboard shortcuts
         document.addEventListener('keydown', function(e) {
             if (e.key === 's' || e.key === 'S') startCamera();
             else if (e.key === 'x' || e.key === 'X') stopCamera();
-            else if (e.key === 'c' || e.key === 'C') captureFrame();
         });
         
-        window.onload = function() {
-            window.parent.postMessage({ type: 'camera_ready' }, '*');
-            statusDiv.textContent = '⏸️ Klik Start atau tekan S';
-        };
-        
+        // Cleanup
         window.addEventListener('beforeunload', function() {
             stopCamera();
         });
         
+        // Menerima hasil dari Streamlit
         window.addEventListener('message', function(event) {
             const data = event.data;
             if (data && data.type === 'prediction_result') {
                 updateUI(data.label, data.confidence);
             }
         });
+        
+        // Notify ready
+        window.onload = function() {
+            statusDiv.textContent = '⏸️ Klik Start atau tekan S untuk deteksi otomatis';
+            statusDiv.style.color = '#6c757d';
+        };
     </script>
     """
 
@@ -317,18 +361,16 @@ def camera_html():
 def main():
     # Load model
     with st.spinner("⏳ Memuat model..."):
-        image_model, video_model, image_class_names, video_class_names = load_models()
+        model, class_names = load_models()
     
-    if image_model is None:
+    if model is None:
         st.error("❌ Model tidak ditemukan!")
         st.info("📁 Pastikan file model ada di ROOT folder:")
         st.code("""
         /content/
         ├── app.py
         ├── image_model.h5       ← Harus ada!
-        ├── video_model.h5       ← Harus ada!
         ├── image_class_names.pkl
-        └── video_class_names.pkl
         """)
         return
     
@@ -338,35 +380,44 @@ def main():
         ### 📋 Informasi
         
         **Fitur:**
-        - 📷 Kamera Real-Time
-        - 📸 Capture Manual
+        - 📷 Auto-Detect (Real-Time)
+        - 📸 Upload Gambar
         
         **Shortcuts:**
-        - `S` = Start Camera
-        - `X` = Stop Camera  
-        - `C` = Capture
+        - `S` = Start
+        - `X` = Stop
         
         **Dataset:**
         - 26 Huruf Abjad (A-Z)
+        
+        **Cara Pakai:**
+        1. Klik Start
+        2. Tunjukkan gestur di depan kamera
+        3. Hasil langsung muncul otomatis!
         """)
         st.divider()
         st.caption("© 2024 BISINDO Classification")
     
     # Tabs
-    tab1, tab2 = st.tabs(["📷 Kamera", "📸 Upload Gambar"])
+    tab1, tab2 = st.tabs(["📷 Auto-Detect", "📸 Upload Gambar"])
     
-    # ==================== TAB 1: KAMERA ====================
+    # ==================== TAB 1: AUTO-DETECT ====================
     with tab1:
         st.markdown("""
         <div style="background: #f8f9fa; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;">
-            <p style="margin: 0; font-weight: bold;">📷 Deteksi Real-Time</p>
+            <p style="margin: 0; font-weight: bold;">📷 Auto-Detect <span style="display:inline-block; background:#ff0000; color:white; padding:0 10px; border-radius:10px; font-size:12px;">LIVE</span></p>
             <p style="margin: 0; font-size: 0.9rem; color: #6c757d;">
-                Tunjukkan gestur di depan kamera, lalu klik <kbd>Capture</kbd> atau tekan <kbd>C</kbd>
+                ⚡ Tunjukkan gestur di depan kamera, <b>hasil langsung muncul otomatis</b> tanpa klik!
             </p>
         </div>
         """, unsafe_allow_html=True)
         
-        st.components.v1.html(camera_html(), height=550)
+        # Placeholder untuk hasil
+        result_placeholder = st.empty()
+        confidence_placeholder = st.empty()
+        
+        # Kamera HTML
+        st.components.v1.html(camera_auto_html(), height=600)
     
     # ==================== TAB 2: UPLOAD GAMBAR ====================
     with tab2:
@@ -385,7 +436,9 @@ def main():
             with col2:
                 if st.button("🔍 Prediksi", type="primary", use_container_width=True):
                     with st.spinner("⏳ Memproses..."):
-                        label, confidence, _ = predict_image(image, image_model, image_class_names)
+                        label, confidence = predict_image_from_bytes(
+                            uploaded_file.getvalue(), model, class_names
+                        )
                         
                         st.markdown(f"""
                         <div class="result-box">
@@ -398,20 +451,27 @@ def main():
 # LISTENER UNTUK DATA DARI JAVASCRIPT
 # ============================================
 
+# Proses data dari query params
 query_params = st.query_params
 
 if 'img' in query_params:
     try:
         img_data = query_params['img']
+        
+        # Handle jika ada timestamp
+        if '&t=' in img_data:
+            img_data = img_data.split('&t=')[0]
+        
         img_b64 = img_data.split(',')[1]
         img_bytes = base64.b64decode(img_b64)
-        img = Image.open(io.BytesIO(img_bytes))
         
-        image_model, _, image_class_names, _ = load_models()
+        # Load model
+        model, class_names = load_models()
         
-        if image_model is not None:
-            label, confidence, _ = predict_image(img, image_model, image_class_names)
+        if model is not None:
+            label, confidence = predict_image_from_bytes(img_bytes, model, class_names)
             
+            # Kirim hasil ke JavaScript
             st.markdown(f"""
             <script>
                 window.parent.postMessage({{
@@ -422,11 +482,11 @@ if 'img' in query_params:
             </script>
             """, unsafe_allow_html=True)
             
+            # Clear query params
             st.query_params.clear()
-            st.rerun()
             
     except Exception as e:
-        st.error(f"❌ Error: {e}")
+        print(f"Error: {e}")
         st.query_params.clear()
 
 if __name__ == "__main__":
